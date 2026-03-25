@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Battery Dashboard - Cost Savings{% endblock %}
+{% block content %}
+<h1>Cost Savings</h1>
+{% set ns = namespace(total_saved=0, total_grid_cost=0, total_wasted=0) %}
+{% for row in rows %}
+    {% set charge_avoided = (100 - row["charge_level_set"]) / 100 * 11.97 %}
+    {% set ns.total_saved = ns.total_saved + charge_avoided * 7 %}
+    {% set ns.total_grid_cost = ns.total_grid_cost + (row["grid_import_kwh"] or 0) * 30 %}
+    {% set ns.total_wasted = ns.total_wasted + (row["grid_export_kwh"] or 0) * 7 %}
+{% endfor %}
+<div class="card">
+    <h2>Totals</h2>
+    <p><strong>Charging saved:</strong> {{ "%.0f" | format(ns.total_saved) }}p (charge avoided at 7p/kWh)</p>
+    <p><strong>Grid import cost:</strong> {{ "%.0f" | format(ns.total_grid_cost) }}p (at 30p/kWh)</p>
+    <p><strong>Wasted export:</strong> {{ "%.0f" | format(ns.total_wasted) }}p (paid 7p to store, exported free)</p>
+    <p><strong>Net benefit:</strong> {{ "%.0f" | format(ns.total_saved - ns.total_wasted) }}p</p>
+</div>
+<table>
+    <thead>
+        <tr><th>Date</th><th>Charge Set</th><th>Solar</th><th>Consumption</th><th>Grid Import</th><th>Grid Export</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+        <tr>
+            <td>{{ row["date"] }}</td>
+            <td>{{ row["charge_level_set"] }}%</td>
+            <td>{{ row["total_solar_generation_kwh"] }} kWh</td>
+            <td>{{ row["total_consumption_kwh"] }} kWh</td>
+            <td>{{ row["grid_import_kwh"] }} kWh</td>
+            <td>{{ row["grid_export_kwh"] }} kWh</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

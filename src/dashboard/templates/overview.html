@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Battery Dashboard - Overview{% endblock %}
+{% block content %}
+<h1>Battery Charge Overview</h1>
+{% if decision %}
+<div class="card">
+    <h2>Latest Decision</h2>
+    <p><strong>Date:</strong> {{ decision["date"] }}</p>
+    <p><strong>Charge Level Set:</strong> {{ decision["charge_level_set"] }}%</p>
+    <p><strong>Forecast:</strong> {{ decision["forecast_summary"] }}</p>
+    <p><strong>Reason:</strong> {{ decision["adjustment_reason"] }}</p>
+</div>
+{% else %}
+<p>No decisions recorded yet.</p>
+{% endif %}
+{% if actual %}
+<div class="card">
+    <h2>Latest Actuals</h2>
+    <p><strong>Date:</strong> {{ actual["date"] }}</p>
+    <p><strong>Solar Generation:</strong> {{ actual["total_solar_generation_kwh"] }} kWh</p>
+    <p><strong>Consumption:</strong> {{ actual["total_consumption_kwh"] }} kWh</p>
+    <p><strong>Grid Import:</strong> {{ actual["grid_import_kwh"] }} kWh</p>
+    <p><strong>Grid Export:</strong> {{ actual["grid_export_kwh"] }} kWh</p>
+</div>
+{% endif %}
+{% endblock %}

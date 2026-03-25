@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Battery Dashboard - History{% endblock %}
+{% block content %}
+<h1>Decision History</h1>
+<table>
+    <thead>
+        <tr>
+            <th>Date</th><th>Forecast</th><th>Charge Set</th>
+            <th>Solar (kWh)</th><th>Grid Import (kWh)</th><th>Grid Export (kWh)</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for row in decisions %}
+        <tr>
+            <td>{{ row["date"] }}</td>
+            <td>{{ row["forecast_summary"] }}</td>
+            <td>{{ row["charge_level_set"] }}%</td>
+            <td>{{ row["total_solar_generation_kwh"] or "-" }}</td>
+            <td>{{ row["grid_import_kwh"] or "-" }}</td>
+            <td>{{ row["grid_export_kwh"] or "-" }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

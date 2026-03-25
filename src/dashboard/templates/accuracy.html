@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Battery Dashboard - Forecast Accuracy{% endblock %}
+{% block content %}
+<h1>Forecast Accuracy</h1>
+<canvas id="accuracyChart"></canvas>
+<script>
+const data = {{ rows | list | tojson }};
+const labels = data.map(r => r[0]);
+const actual = data.map(r => r[3]);
+new Chart(document.getElementById('accuracyChart'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: 'Actual Solar (kWh)',
+            data: actual,
+            backgroundColor: '#f59e0b'
+        }]
+    }
+});
+</script>
+{% endblock %}
