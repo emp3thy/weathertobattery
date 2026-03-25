@@ -39,17 +39,34 @@ The interface is abstracted so providers can be swapped (e.g., Met Office, OpenW
 
 ### 2. Growatt Client
 
-Wraps the `growattServer` Python library. Authentication method to be validated during implementation — the library typically uses username/password login. If the personal API token from the ShineServer portal is not directly supported by the library, we will either: (a) use username/password stored securely in config, or (b) implement direct HTTP calls using the token. Authentication approach will be confirmed in the first implementation task.
+Uses a hybrid approach: `growattServer` library for reading data, direct HTTP calls for writing settings.
 
-**Reads:**
-- Device info (model, serial, capacity)
-- Historical daily/hourly generation and consumption
-- Historical grid import/export
-- Current battery state of charge
-- Current charge level target
+**Authentication:** Username/password login to `server.growatt.com` (not `openapi.growatt.com`). The library's `GrowattApi` class with a patched User-Agent header. Session cookies handle auth for subsequent requests.
 
-**Writes:**
-- Set overnight charge target percentage
+**Device:** Growatt SPA3000 (serial: WPDACDB05J, plant ID: 1368210). Device type is AC-coupled storage.
+
+**Reads (via growattServer library):**
+- `device_list(plant_id)` — device info (model, serial, SOC, charge power)
+- `dashboard_data(plant_id, timespan, date)` — hourly/daily/monthly data with fields:
+  - `ppv` — solar generation (kW)
+  - `sysOut` — grid export (kW)
+  - `pacToUser` — grid import (kW)
+  - `userLoad` — direct load (kW)
+- Summary totals: `photovoltaic`, `eCharge`, `eAcCharge`, `elocalLoad`, `etouser`
+
+**Writes (via direct HTTP to server.growatt.com):**
+- `POST /tcpSet.do` with form data to set battery charge parameters
+- Setting type: `spa_ac_charge_time_period`
+- Key parameters:
+  - `param1` — charge power % (keep at 100)
+  - **`param2` — charge stop SOC % (this is what we control)**
+  - `param3-6` — time period 1 (23:30-23:59, enabled)
+  - `param7` — time period 1 enabled (1)
+  - `param8-11` — time period 2 (00:00-05:30, enabled)
+  - `param12` — time period 2 enabled (1)
+  - `param13-16` — time period 3 (unused, 00:00-00:00)
+  - `param17` — time period 3 disabled (0)
+- Only `param2` (SOC target) changes between runs; all other params stay fixed
 
 **Error handling:**
 - API down: retry up to 3 times with exponential backoff (5s, 15s, 45s). If all retries fail, log failure and skip that night (can't set battery if API is down)
