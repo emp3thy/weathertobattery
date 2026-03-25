@@ -1163,6 +1163,13 @@ class GrowattClient:
         }
 
     def get_hourly_data(self, target_date: date) -> dict:
+        """Get 5-minute interval data for a day.
+
+        Returns dict of time_str -> {ppv, sysOut, userLoad, pacToUser}
+        where values are strings. Keys are like "08:05", "08:10" etc.
+        288 entries per full day (24h * 12 intervals).
+        Dict is unordered — sort by key for chronological order.
+        """
         raw = self._api.dashboard_data(
             self.config.plant_id,
             growattServer.Timespan.hour,
@@ -2019,24 +2026,47 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         hourly = growatt_client.get_hourly_data(today)
         daily = growatt_client.get_daily_data(today)
 
+        # Hourly data is 5-minute intervals: {"08:05": {"ppv": "1.2", ...}, ...}
         # Calculate grid import during expensive hours (05:30-23:30)
-        grid_import = 0.0
-        grid_export = 0.0
-        for time_str, values in hourly.items() if isinstance(hourly, dict) else []:
+        # and grid export (sysOut = export to grid)
+        grid_import_expensive = 0.0
+        grid_export_total = 0.0
+        peak_solar_hour = None
+        peak_solar_val = 0.0
+
+        for time_str in sorted(hourly.keys()):
+            values = hourly[time_str]
+            if not isinstance(values, dict):
+                continue
             hour = int(time_str.split(":")[0])
             minute = int(time_str.split(":")[1])
+            ppv = float(values.get("ppv", 0))
+            pac_to_user = float(values.get("pacToUser", 0))
+            sys_out = float(values.get("sysOut", 0))
+
+            # Track peak solar hour
+            if ppv > peak_solar_val:
+                peak_solar_val = ppv
+                peak_solar_hour = time_str
+
             # Expensive hours: 05:30 to 23:30
-            if (hour > 5 or (hour == 5 and minute >= 30)):
-                grid_import += float(values.get("pacToUser", 0)) if isinstance(values, dict) else 0
-                grid_export += float(values.get("userLoad", 0)) if isinstance(values, dict) else 0
+            is_expensive = (hour > 5 or (hour == 5 and minute >= 30)) and \
+                           (hour < 23 or (hour == 23 and minute <= 30))
+            if is_expensive:
+                grid_import_expensive += pac_to_user
+            grid_export_total += sys_out
+
+        # Convert 5-min power readings (kW) to energy (kWh): each reading is 5min = 1/12 hour
+        grid_import_kwh = grid_import_expensive / 12
+        grid_export_kwh = grid_export_total / 12
 
         insert_actuals(
             conn, today,
             solar_gen=daily.get("total_solar_kwh", 0),
             consumption=daily.get("total_load_kwh", 0),
-            grid_import=grid_import,
-            grid_export=grid_export,
-            peak_solar_hour=None,
+            grid_import=grid_import_kwh,
+            grid_export=grid_export_kwh,
+            peak_solar_hour=peak_solar_hour,
             min_soc=None,
             max_soc=None,
         )
@@ -2724,7 +2754,7 @@ Create `scripts/nightly-charge.bat`:
 ```bat
 @echo off
 cd /d C:\Users\gethi\source\weatherToBattery
-claude -p "Run /charge-battery for tomorrow" --allowedTools "Bash,Read,Edit,Write"
+claude -p "Run /charge-battery for tomorrow" --allowedTools "Bash,Read,Edit,Write" --permission-mode default
 ```
 
 - [ ] **Step 2: Register with Windows Task Scheduler**
