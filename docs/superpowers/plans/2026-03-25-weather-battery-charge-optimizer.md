@@ -99,6 +99,7 @@ uvicorn>=0.29.0
 jinja2>=3.1.0
 pyyaml>=6.0
 python-dateutil>=2.9.0
+httpx>=0.27.0
 ```
 
 - [ ] **Step 2: Install dependencies**
@@ -138,12 +139,6 @@ rates:
   cheap_start: "23:30"
   cheap_end: "05:30"
 
-pool_heater:
-  season_start: "05-15"  # MM-DD
-  season_end: "09-30"
-  temperature_threshold_c: 18
-  power_kw: 6
-
 winter_override:
   start: "10-25"  # MM-DD
   end: "02-28"
@@ -168,11 +163,7 @@ manual_override: null
 
 - [ ] **Step 4: Create config.yaml with real credentials**
 
-Copy `config.example.yaml` to `config.yaml` and fill in:
-- `growatt.username`: `"Stevens BR1"`
-- `growatt.password`: `"Growattsucks01!"`
-- `growatt.plant_id`: `"1368210"`
-- `growatt.device_sn`: `"WPDACDB05J"`
+Copy `config.example.yaml` to `config.yaml` and fill in your real credentials (stored in your password manager — do not commit this file).
 
 Add `config.yaml` to `.gitignore`.
 
@@ -222,11 +213,6 @@ rates:
   export_pence_per_kwh: 0
   cheap_start: "23:30"
   cheap_end: "05:30"
-pool_heater:
-  season_start: "05-15"
-  season_end: "09-30"
-  temperature_threshold_c: 18
-  power_kw: 6
 winter_override:
   start: "10-25"
   end: "02-28"
@@ -276,11 +262,6 @@ rates:
   export_pence_per_kwh: 0
   cheap_start: "23:30"
   cheap_end: "05:30"
-pool_heater:
-  season_start: "05-15"
-  season_end: "09-30"
-  temperature_threshold_c: 18
-  power_kw: 6
 winter_override:
   start: "10-25"
   end: "02-28"
@@ -363,14 +344,6 @@ class RatesConfig:
 
 
 @dataclass
-class PoolHeaterConfig:
-    season_start: str
-    season_end: str
-    temperature_threshold_c: float
-    power_kw: float
-
-
-@dataclass
 class WinterOverrideConfig:
     start: str
     end: str
@@ -402,7 +375,6 @@ class Config:
     battery: BatteryConfig
     weather: WeatherConfig
     rates: RatesConfig
-    pool_heater: PoolHeaterConfig
     winter_override: WinterOverrideConfig
     feedback: FeedbackConfig
     bootstrap: BootstrapConfig
@@ -433,7 +405,6 @@ def load_config(path: Path) -> Config:
         battery=BatteryConfig(**raw["battery"]),
         weather=WeatherConfig(**raw["weather"]),
         rates=RatesConfig(**raw["rates"]),
-        pool_heater=PoolHeaterConfig(**raw["pool_heater"]),
         winter_override=WinterOverrideConfig(**raw["winter_override"]),
         feedback=FeedbackConfig(**raw["feedback"]),
         bootstrap=BootstrapConfig(**raw["bootstrap"]),
@@ -479,11 +450,6 @@ rates:
   export_pence_per_kwh: 0
   cheap_start: "23:30"
   cheap_end: "05:30"
-pool_heater:
-  season_start: "05-15"
-  season_end: "09-30"
-  temperature_threshold_c: 18
-  power_kw: 6
 winter_override:
   start: "10-25"
   end: "02-28"
@@ -1545,7 +1511,7 @@ class ChargeResult:
     reason: str
 
 
-def _is_winter(target_date: date, config: Config) -> bool:
+def is_winter(target_date: date, config: Config) -> bool:
     month_day = (target_date.month, target_date.day)
     start_parts = config.winter_override.start.split("-")
     end_parts = config.winter_override.end.split("-")
@@ -1555,18 +1521,6 @@ def _is_winter(target_date: date, config: Config) -> bool:
     if start > end:
         return month_day >= start or month_day <= end
     return start <= month_day <= end
-
-
-def _is_pool_heater_day(target_date: date, forecast: DayForecast,
-                        config: Config) -> bool:
-    start_parts = config.pool_heater.season_start.split("-")
-    end_parts = config.pool_heater.season_end.split("-")
-    start = (int(start_parts[0]), int(start_parts[1]))
-    end = (int(end_parts[0]), int(end_parts[1]))
-    month_day = (target_date.month, target_date.day)
-    in_season = start <= month_day <= end
-    warm_enough = forecast.max_temperature_c >= config.pool_heater.temperature_threshold_c
-    return in_season and warm_enough
 
 
 def _bootstrap_level(target_date: date, forecast: DayForecast,
@@ -1585,6 +1539,7 @@ def calculate_charge(
     historical_consumption: list[float],
     historical_generation: list[float],
     feedback_adjustment: int,
+    solar_profile: dict[int, float] | None = None,
 ) -> ChargeResult:
     target_date = forecast.date
 
@@ -1616,15 +1571,25 @@ def calculate_charge(
     avg_consumption = sum(historical_consumption) / len(historical_consumption)
     avg_generation = sum(historical_generation) / len(historical_generation)
 
-    # Scale generation by weather condition relative to historical
-    condition_factor = {"sunny": 1.1, "cloudy": 0.7, "rainy": 0.3}
-    expected_gen = avg_generation * condition_factor.get(forecast.condition, 0.7)
-
-    # Account for pool heater
-    if _is_pool_heater_day(target_date, forecast, config):
-        # Pool heater adds significant load
-        pool_hours = 5  # roughly 10AM-3PM
-        avg_consumption += config.pool_heater.power_kw * pool_hours * 0.5
+    # Calculate expected generation from weighted forecast using solar profile
+    if forecast.hourly and solar_profile:
+        from .profiles import weight_forecast
+        weighted = weight_forecast(forecast.hourly, solar_profile)
+        # Scale: total weighted radiation relative to clear-sky baseline
+        total_weighted = sum(weighted.values())
+        # Estimate expected generation proportional to historical avg
+        # adjusted by how weighted radiation compares to a clear-sky norm
+        clear_sky_weighted = sum(
+            800 * solar_profile.get(h.hour, 0) for h in forecast.hourly
+        )
+        if clear_sky_weighted > 0:
+            gen_ratio = total_weighted / clear_sky_weighted
+        else:
+            gen_ratio = 0.5
+        expected_gen = avg_generation * gen_ratio
+    else:
+        condition_factor = {"sunny": 1.1, "cloudy": 0.7, "rainy": 0.3}
+        expected_gen = avg_generation * condition_factor.get(forecast.condition, 0.7)
 
     current_soc_kwh = (current_soc / 100) * config.battery.usable_capacity_kwh
     shortfall = avg_consumption - expected_gen - current_soc_kwh
@@ -1940,7 +1905,8 @@ from pathlib import Path
 from .config import Config
 from .weather.interface import WeatherProvider, DayForecast, HourlyForecast
 from .growatt.client import GrowattClient
-from .calculator.engine import calculate_charge, _is_winter
+from .calculator.engine import calculate_charge, is_winter
+from .calculator.profiles import build_solar_profile
 from .calculator.feedback import compute_feedback_adjustment, apply_decay
 from .db.queries import (
     upsert_decision, get_decision, get_actuals, insert_actuals,
@@ -2041,6 +2007,54 @@ def _write_last_updated(path: Path, result: dict, forecast: DayForecast | None) 
     (path / "last_updated.md").write_text("\n".join(lines))
 
 
+def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
+                      target_date: date) -> None:
+    """Pull yesterday's actuals from Growatt and store in DB."""
+    today = target_date - timedelta(days=1)  # the day that just completed
+    existing = get_actuals(conn, today)
+    if existing:
+        return  # already backfilled
+
+    try:
+        hourly = growatt_client.get_hourly_data(today)
+        daily = growatt_client.get_daily_data(today)
+
+        # Calculate grid import during expensive hours (05:30-23:30)
+        grid_import = 0.0
+        grid_export = 0.0
+        for time_str, values in hourly.items() if isinstance(hourly, dict) else []:
+            hour = int(time_str.split(":")[0])
+            minute = int(time_str.split(":")[1])
+            # Expensive hours: 05:30 to 23:30
+            if (hour > 5 or (hour == 5 and minute >= 30)):
+                grid_import += float(values.get("pacToUser", 0)) if isinstance(values, dict) else 0
+                grid_export += float(values.get("userLoad", 0)) if isinstance(values, dict) else 0
+
+        insert_actuals(
+            conn, today,
+            solar_gen=daily.get("total_solar_kwh", 0),
+            consumption=daily.get("total_load_kwh", 0),
+            grid_import=grid_import,
+            grid_export=grid_export,
+            peak_solar_hour=None,
+            min_soc=None,
+            max_soc=None,
+        )
+        logger.info(f"Backfilled actuals for {today}")
+    except Exception as e:
+        logger.warning(f"Failed to backfill actuals for {today}: {e}")
+
+
+def _clear_manual_override(config_path: Path) -> None:
+    """Clear manual_override in config.yaml after use."""
+    import yaml
+    with open(config_path) as f:
+        raw = yaml.safe_load(f)
+    raw["manual_override"] = None
+    with open(config_path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False)
+
+
 def run_nightly(
     config: Config,
     conn,
@@ -2054,9 +2068,19 @@ def run_nightly(
     errors = []
     forecast = None
     feedback_adj = 0
+    current_soc = None
+
+    # Backfill yesterday's actuals
+    _backfill_actuals(conn, growatt_client, config, target_date)
+
+    # Read current SOC once
+    try:
+        current_soc = growatt_client.get_current_soc()
+    except Exception as e:
+        logger.warning(f"Failed to read SOC: {e}")
 
     # Winter override — skip weather entirely
-    if _is_winter(target_date, config):
+    if is_winter(target_date, config):
         charge_level = 100
         reason = "Winter override: charging to 100%"
         base_level = 100
@@ -2064,36 +2088,52 @@ def run_nightly(
         charge_level = config.manual_override
         reason = f"Manual override: {charge_level}%"
         base_level = charge_level
-    else:
-        # Fetch forecast
+        # Clear the override
         try:
-            forecast = weather_provider.get_forecast(
-                config.location.latitude, config.location.longitude,
-                target_date, config.location.timezone
-            )
+            _clear_manual_override(project_root / "config.yaml")
         except Exception as e:
-            logger.error(f"Weather API failed: {e}")
-            errors.append(f"Weather API failed: {e}")
+            logger.warning(f"Failed to clear manual override: {e}")
+    else:
+        # Fetch forecast with retry
+        for attempt in range(3):
+            try:
+                forecast = weather_provider.get_forecast(
+                    config.location.latitude, config.location.longitude,
+                    target_date, config.location.timezone
+                )
+                break
+            except Exception as e:
+                if attempt == 2:
+                    logger.error(f"Weather API failed after 3 retries: {e}")
+                    errors.append(f"Weather API failed: {e}")
+                    forecast = None
+                else:
+                    import time as time_module
+                    time_module.sleep([5, 15][attempt])
+
+        if forecast is None:
             charge_level = 90
             reason = "Weather API unavailable — fallback to 90%"
             base_level = 90
-            forecast = None
-
-        if forecast:
+        else:
             # Get today's decision for feedback
             today_decision = get_decision(conn, date.today())
             today_weather = today_decision["forecast_summary"] if today_decision else "cloudy"
             feedback_adj = _get_feedback_state(conn, config, today_weather,
                                                 forecast.condition)
 
-            current_soc = growatt_client.get_current_soc()
             consumption, generation = _get_historical_data(conn, target_date)
 
+            # Build solar profile from historical hourly data
+            solar_profile = None  # TODO: build from cached hourly data
+
             calc_result = calculate_charge(
-                config=config, forecast=forecast, current_soc=current_soc,
+                config=config, forecast=forecast,
+                current_soc=current_soc or 0,
                 historical_consumption=consumption,
                 historical_generation=generation,
                 feedback_adjustment=feedback_adj,
+                solar_profile=solar_profile,
             )
             charge_level = calc_result.charge_level
             base_level = calc_result.base_level
@@ -2120,7 +2160,7 @@ def run_nightly(
         base_charge_level=base_level,
         feedback_adjustment=feedback_adj,
         adjustment_reason=reason,
-        current_soc=growatt_client.get_current_soc() if forecast else None,
+        current_soc=current_soc,
         month=target_date.month,
         weather_provider=config.weather.provider,
     )

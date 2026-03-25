@@ -10,7 +10,6 @@ A system that optimizes overnight battery charging for a Growatt battery system 
 - Battery: 13.3kWh total, ~12kWh usable (90%)
 - Daily consumption: ~25kWh
 - Solar: panels favour morning generation; peak production profile derived from Growatt historical data
-- Pool heater: mid-May to September, 10AM-3/4PM, 6kWh/hour (24-36kWh per session)
 - Good summer day generation: ~40kWh
 
 ## Architecture
@@ -83,7 +82,7 @@ Formula-based from the start, using Growatt historical data. No lookup table.
 2. Build solar productivity profile: which hours of the day panels produce most, per month/season (derived from Growatt historical hourly generation)
 3. Weight tomorrow's hourly forecast by the productivity profile — cloud cover during peak production hours matters more
 4. Calculate expected solar yield from weighted forecast
-5. Calculate expected consumption from historical averages for this type of day. Pool heater days are classified separately (see Pool Heater section) — only compare against historical days with similar pool heater usage.
+5. Calculate expected consumption from historical averages for this type of day.
 6. Read current battery SOC from Growatt. Shortfall = expected consumption - expected solar yield - current battery SOC (converted to kWh)
 7. Charge level = shortfall as percentage of usable battery capacity
 8. Clamp between floor (30%) and 100%
@@ -98,13 +97,6 @@ Each evening, pull the most recent completed solar day's actuals. At 10PM, today
 - **Overcharged:** Battery hit 100% and exported surplus to grid for free (energy we paid 7p to store). If tomorrow's forecast is the same or better than today's, decrease charge level proportionally to the surplus export.
 
 **Adjustment caps:** Individual feedback adjustments are capped at +/- 15 percentage points per night. Cumulative adjustments from the feedback loop are capped at +/- 25 percentage points from the base calculation. Adjustments decay by 5 percentage points per day if the triggering condition does not recur (i.e., if the system stops over/undercharging, the adjustment gradually returns to zero). Processing order: apply decay first, then apply any new adjustment from today's feedback, then clamp to cumulative cap.
-
-**Pool heater season (mid-May to September):**
-Pool heater days are identified explicitly. A day is classified as a "pool heater day" if:
-- It falls within the configured pool heater season (default: 15 May - 30 September)
-- AND the forecast temperature exceeds a configurable threshold (default: 18C) — since the heater runs when it's warm enough to swim
-
-Historical consumption data is split into pool-heater-on and pool-heater-off cohorts. The calculator selects the appropriate cohort based on whether tomorrow is expected to be a pool heater day. This prevents averaging across fundamentally different usage patterns (25kWh normal day vs 50kWh+ pool heater day).
 
 **Winter override (25 October to end of February):**
 Charge to 100% always. Solar yield is negligible and not worth optimizing. Start/end dates configurable in `config.yaml`.
@@ -213,7 +205,6 @@ Stored in `config.yaml`:
 - Battery capacity and usable percentage
 - Charge floor percentage (default 30%)
 - Feedback adjustment caps (per-night max, cumulative max, decay rate)
-- Pool heater season dates and temperature threshold
 - Cheap/expensive rate times and costs
 - Export rate (default 0p/kWh)
 - Winter override start/end dates
