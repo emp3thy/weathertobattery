@@ -80,7 +80,7 @@ Each evening, pull the most recent completed solar day's actuals. At 10PM, today
 - **Undercharged:** Grid import during expensive hours means we needed more charge. If tomorrow's forecast is the same or worse than today's, increase charge level proportionally to the grid draw.
 - **Overcharged:** Battery hit 100% and exported surplus to grid for free (energy we paid 7p to store). If tomorrow's forecast is the same or better than today's, decrease charge level proportionally to the surplus export.
 
-**Adjustment caps:** Individual feedback adjustments are capped at +/- 15 percentage points per night. Cumulative adjustments from the feedback loop are capped at +/- 25 percentage points from the base calculation. Adjustments decay by 5 percentage points per day if the triggering condition does not recur (i.e., if the system stops over/undercharging, the adjustment gradually returns to zero).
+**Adjustment caps:** Individual feedback adjustments are capped at +/- 15 percentage points per night. Cumulative adjustments from the feedback loop are capped at +/- 25 percentage points from the base calculation. Adjustments decay by 5 percentage points per day if the triggering condition does not recur (i.e., if the system stops over/undercharging, the adjustment gradually returns to zero). Processing order: apply decay first, then apply any new adjustment from today's feedback, then clamp to cumulative cap.
 
 **Pool heater season (mid-May to September):**
 Pool heater days are identified explicitly. A day is classified as a "pool heater day" if:
@@ -108,7 +108,7 @@ SQLite database (`data/battery.db`).
 - date, forecast_summary, forecast_detail (hourly solar radiation, cloud cover), charge_level_set (%), base_charge_level (% before feedback adjustment), feedback_adjustment (%), adjustment_reason, current_soc_at_decision (%), month, weather_provider_used
 
 **actuals** — one row per day, backfilled the following evening:
-- date, total_solar_generation_kwh, total_consumption_kwh, grid_import_kwh (expensive hours only), grid_export_kwh (while battery full), peak_solar_hour, battery_min_soc (%), battery_max_soc (%)
+- date, total_solar_generation_kwh, total_consumption_kwh, grid_import_kwh (expensive hours: 5:30AM-11:30PM), grid_export_kwh (while battery full), peak_solar_hour, battery_min_soc (%), battery_max_soc (%)
 
 **adjustments** — log of feedback adjustments:
 - date, direction (up/down), amount (%), trigger (grid_draw/surplus_export), previous_day_weather, tomorrow_forecast, grid_draw_kwh, surplus_export_kwh
@@ -128,7 +128,7 @@ Lightweight FastAPI web app, served locally on localhost.
 - **Cost Savings** — estimated money saved vs charging to 100% every night: battery charge avoided (kWh at 7p), grid import during expensive hours (kWh at 30p), surplus exported for free (wasted at 7p)
 - **Solar Profile** — hourly productivity curve by month, built from Growatt data
 
-**Tech:** FastAPI backend, HTML templates, Chart.js for charts. Reads from SQLite only.
+**Tech:** FastAPI backend, HTML templates, Chart.js for charts. Reads from SQLite only (WAL mode for concurrent read/write safety). Localhost only — no authentication. LAN exposure is out of scope for v1.
 
 ### 6. Skills
 
@@ -177,6 +177,10 @@ weatherToBattery/
 │   └── superpowers/specs/ # This design doc
 └── tests/
 ```
+
+## Timezone Handling
+
+All dates and times are in local London time (GMT/BST as appropriate). The Growatt client handles UTC-to-local conversion internally. The orchestrator, calculator, and dashboard all operate in local time.
 
 ## Key Rates
 
