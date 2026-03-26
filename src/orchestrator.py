@@ -17,13 +17,14 @@ from .db.queries import (
 logger = logging.getLogger(__name__)
 
 
-def _get_historical_data(conn, target_date: date, window_weeks: int = 2) -> tuple[list[float], list[float]]:
+def _get_historical_data(conn, target_date: date, window_weeks: int = 2) -> tuple[list[float], list[float], list[float]]:
     start = target_date - timedelta(weeks=window_weeks)
     end = target_date - timedelta(days=1)
     rows = get_actuals_range(conn, start, end)
     consumption = [row["total_consumption_kwh"] for row in rows]
     generation = [row["total_solar_generation_kwh"] for row in rows]
-    return consumption, generation
+    grid_import = [row["grid_import_kwh"] for row in rows]
+    return consumption, generation, grid_import
 
 
 def _get_feedback_state(conn, config: Config, today_weather: str, tomorrow_weather: str) -> int:
@@ -224,13 +225,14 @@ def run_nightly(
             today_weather = today_decision["forecast_summary"] if today_decision else "cloudy"
             feedback_adj = _get_feedback_state(conn, config, today_weather, forecast.condition)
 
-            consumption, generation = _get_historical_data(conn, target_date)
+            consumption, generation, hist_grid_import = _get_historical_data(conn, target_date)
             solar_profile = None  # Built from cached hourly data when available
 
             calc_result = calculate_charge(
                 config=config, forecast=forecast, current_soc=current_soc or 0,
                 historical_consumption=consumption, historical_generation=generation,
                 feedback_adjustment=feedback_adj, solar_profile=solar_profile,
+                historical_grid_import=hist_grid_import,
             )
             charge_level = calc_result.charge_level
             base_level = calc_result.base_level

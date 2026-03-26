@@ -40,6 +40,7 @@ def calculate_charge(
     historical_generation: list[float],
     feedback_adjustment: int,
     solar_profile: dict[int, float] | None = None,
+    historical_grid_import: list[float] | None = None,
 ) -> ChargeResult:
     target_date = forecast.date
 
@@ -67,11 +68,11 @@ def calculate_charge(
             reason=f"Bootstrap estimate (insufficient historical data): {level}%"
         )
 
-    # Formula-based calculation
-    avg_consumption = sum(historical_consumption) / len(historical_consumption)
+    # Core question: how much grid import will we need during expensive hours?
+    # Historical grid import on similar days tells us what the battery needs to cover.
     avg_generation = sum(historical_generation) / len(historical_generation)
 
-    # Calculate expected generation from weighted forecast using solar profile
+    # Estimate expected generation adjusted for forecast
     if forecast.hourly and solar_profile:
         from .profiles import weight_forecast
         weighted = weight_forecast(forecast.hourly, solar_profile)
@@ -88,21 +89,38 @@ def calculate_charge(
         condition_factor = {"sunny": 1.1, "cloudy": 0.7, "rainy": 0.3}
         expected_gen = avg_generation * condition_factor.get(forecast.condition, 0.7)
 
+    # Use historical grid import as the primary signal
+    # Grid import = energy pulled from grid during expensive hours
+    # Battery needs to cover this minus what extra solar we expect
+    if historical_grid_import:
+        avg_grid_import = sum(historical_grid_import) / len(historical_grid_import)
+    else:
+        # Fallback: estimate from consumption and generation
+        avg_consumption = sum(historical_consumption) / len(historical_consumption)
+        avg_grid_import = max(0, avg_consumption - avg_generation)
+
+    # Adjust grid import estimate based on whether tomorrow has more/less solar
+    gen_diff = expected_gen - avg_generation  # positive = more solar than average
+    expected_grid_import = max(0, avg_grid_import - gen_diff)
+
+    # Battery needs to cover expected grid import
+    # Subtract what's already in the battery
     current_soc_kwh = (current_soc / 100) * config.battery.usable_capacity_kwh
-    shortfall = avg_consumption - expected_gen - current_soc_kwh
+    needed_kwh = max(0, expected_grid_import - current_soc_kwh)
 
     usable = config.battery.usable_capacity_kwh
-    base_level = int(max(0, min(100, (shortfall / usable) * 100)))
+    base_level = int(max(0, min(100, (needed_kwh / usable) * 100)))
 
     # Apply feedback
     adjusted = base_level + feedback_adjustment
     charge_level = int(max(config.battery.charge_floor_pct, min(100, adjusted)))
 
     reason_parts = [
-        f"Expected consumption: {avg_consumption:.1f}kWh",
-        f"Expected generation: {expected_gen:.1f}kWh",
+        f"Avg grid import (similar days): {avg_grid_import:.1f}kWh",
+        f"Expected generation: {expected_gen:.1f}kWh (avg: {avg_generation:.1f}kWh)",
+        f"Expected grid import tomorrow: {expected_grid_import:.1f}kWh",
         f"Current SOC: {current_soc}% ({current_soc_kwh:.1f}kWh)",
-        f"Shortfall: {shortfall:.1f}kWh",
+        f"Battery needed: {needed_kwh:.1f}kWh",
         f"Base charge: {base_level}%",
     ]
     if feedback_adjustment != 0:
