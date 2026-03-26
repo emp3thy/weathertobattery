@@ -27,8 +27,8 @@
             <td>{{ row["charge_level_set"] }}%</td>
             <td>{{ row["total_solar_generation_kwh"] }} kWh</td>
             <td>{{ row["total_consumption_kwh"] }} kWh</td>
-            <td>{{ row["grid_import_kwh"] }} kWh</td>
-            <td>{{ row["grid_export_kwh"] }} kWh</td>
+            <td>{{ "%.3f"|format(row["grid_import_kwh"]) }} kWh</td>
+            <td>{{ "%.3f"|format(row["grid_export_kwh"]) }} kWh</td>
         </tr>
     {% endfor %}
     </tbody>
