@@ -15,6 +15,17 @@ def create_app(db_path: Path) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+    def fmt3(value):
+        """Format a number to 3 decimal places. Pass through non-numeric values."""
+        if value is None:
+            return "-"
+        try:
+            return f"{float(value):.3f}"
+        except (ValueError, TypeError):
+            return value
+
+    templates.env.filters["f3"] = fmt3
+
     def get_conn():
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row

@@ -15,9 +15,9 @@
             <td>{{ row["date"] }}</td>
             <td>{{ row["forecast_summary"] }}</td>
             <td>{{ row["charge_level_set"] }}%</td>
-            <td>{{ row["total_solar_generation_kwh"] or "-" }}</td>
-            <td>{{ "%.3f"|format(row["grid_import_kwh"]) if row["grid_import_kwh"] else "-" }}</td>
-            <td>{{ "%.3f"|format(row["grid_export_kwh"]) if row["grid_export_kwh"] else "-" }}</td>
+            <td>{{ row["total_solar_generation_kwh"]|f3 }}</td>
+            <td>{{ row["grid_import_kwh"]|f3 }}</td>
+            <td>{{ row["grid_export_kwh"]|f3 }}</td>
         </tr>
     {% endfor %}
     </tbody>

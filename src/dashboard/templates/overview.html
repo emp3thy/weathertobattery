@@ -17,10 +17,10 @@
 <div class="card">
     <h2>Latest Actuals</h2>
     <p><strong>Date:</strong> {{ actual["date"] }}</p>
-    <p><strong>Solar Generation:</strong> {{ actual["total_solar_generation_kwh"] }} kWh</p>
-    <p><strong>Consumption:</strong> {{ actual["total_consumption_kwh"] }} kWh</p>
-    <p><strong>Grid Import:</strong> {{ "%.3f"|format(actual["grid_import_kwh"]) }} kWh</p>
-    <p><strong>Grid Export:</strong> {{ "%.3f"|format(actual["grid_export_kwh"]) }} kWh</p>
+    <p><strong>Solar Generation:</strong> {{ actual["total_solar_generation_kwh"]|f3 }} kWh</p>
+    <p><strong>Consumption:</strong> {{ actual["total_consumption_kwh"]|f3 }} kWh</p>
+    <p><strong>Grid Import:</strong> {{ actual["grid_import_kwh"]|f3 }} kWh</p>
+    <p><strong>Grid Export:</strong> {{ actual["grid_export_kwh"]|f3 }} kWh</p>
 </div>
 {% endif %}
 {% endblock %}
