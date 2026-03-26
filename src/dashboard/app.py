@@ -90,12 +90,29 @@ def create_app(db_path: Path) -> FastAPI:
     @app.get("/solar-profile", response_class=HTMLResponse)
     def solar_profile(request: Request):
         conn = get_conn()
-        rows = conn.execute(
-            "SELECT * FROM actuals ORDER BY date DESC LIMIT 90"
+        # Daily generation for last 90 days
+        daily = conn.execute(
+            "SELECT date, total_solar_generation_kwh FROM actuals "
+            "ORDER BY date DESC LIMIT 90"
         ).fetchall()
+        daily = list(reversed(daily))  # chronological order
+
+        # Monthly averages by hour — from hourly_profiles table if available
+        hourly_profile = conn.execute(
+            "SELECT hour, avg_generation FROM hourly_profiles ORDER BY hour"
+        ).fetchall() if _table_exists(conn, "hourly_profiles") else []
+
         conn.close()
         return templates.TemplateResponse("solar_profile.html", {
-            "request": request, "rows": rows
+            "request": request,
+            "daily": daily,
+            "hourly_profile": hourly_profile,
         })
+
+    def _table_exists(conn, table_name: str) -> bool:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,))
+        return cursor.fetchone() is not None
 
     return app

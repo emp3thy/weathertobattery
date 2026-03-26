@@ -2,6 +2,61 @@
 {% block title %}Battery Dashboard - Solar Profile{% endblock %}
 {% block content %}
 <h1>Solar Profile</h1>
-<p>Solar productivity profile is built from historical Growatt data. This page will show hourly generation curves once enough data is collected.</p>
-<canvas id="profileChart"></canvas>
+
+{% if hourly_profile %}
+<div class="card">
+    <h2>Average Hourly Generation (last 90 days)</h2>
+    <canvas id="hourlyChart"></canvas>
+</div>
+<script>
+const hourlyLabels = [{% for row in hourly_profile %}"{{ '%02d:00'|format(row['hour']) }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const hourlyData = [{% for row in hourly_profile %}{{ row['avg_generation']|f3 }}{% if not loop.last %},{% endif %}{% endfor %}];
+new Chart(document.getElementById('hourlyChart'), {
+    type: 'bar',
+    data: {
+        labels: hourlyLabels,
+        datasets: [{
+            label: 'Avg Generation (kWh)',
+            data: hourlyData,
+            backgroundColor: '#f59e0b'
+        }]
+    },
+    options: {
+        scales: { y: { beginAtZero: true, title: { display: true, text: 'kWh' } } },
+        plugins: { legend: { display: false } }
+    }
+});
+</script>
+{% else %}
+<p>No hourly profile data available yet.</p>
+{% endif %}
+
+{% if daily %}
+<div class="card">
+    <h2>Daily Solar Generation (last 90 days)</h2>
+    <canvas id="dailyChart"></canvas>
+</div>
+<script>
+const dailyLabels = [{% for row in daily %}"{{ row['date'] }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const dailyData = [{% for row in daily %}{{ row['total_solar_generation_kwh']|f3 }}{% if not loop.last %},{% endif %}{% endfor %}];
+new Chart(document.getElementById('dailyChart'), {
+    type: 'bar',
+    data: {
+        labels: dailyLabels,
+        datasets: [{
+            label: 'Solar Generation (kWh)',
+            data: dailyData,
+            backgroundColor: '#3b82f6'
+        }]
+    },
+    options: {
+        scales: {
+            x: { ticks: { maxTicksLimit: 15 } },
+            y: { beginAtZero: true, title: { display: true, text: 'kWh' } }
+        },
+        plugins: { legend: { display: false } }
+    }
+});
+</script>
+{% endif %}
 {% endblock %}
