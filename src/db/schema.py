@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS adjustments (
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that may not exist on databases created before this schema version."""
     cursor = conn.execute("PRAGMA table_info(actuals)")
     existing_columns = {row[1] for row in cursor.fetchall()}
     if "weather_condition" not in existing_columns:

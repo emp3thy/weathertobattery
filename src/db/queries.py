@@ -105,7 +105,8 @@ def get_generation_by_weather(conn: sqlite3.Connection, month: int, condition: s
     cursor = conn.execute(
         """SELECT total_solar_generation_kwh FROM actuals
            WHERE CAST(strftime('%m', date) AS INTEGER) = ?
-           AND weather_condition = ?""",
+           AND weather_condition = ?
+           ORDER BY date DESC""",
         (month, condition))
     return [row[0] for row in cursor.fetchall()]
 
@@ -117,7 +118,8 @@ def get_generation_by_weather_wide(conn: sqlite3.Connection, month: int, conditi
     cursor = conn.execute(
         f"""SELECT total_solar_generation_kwh FROM actuals
             WHERE CAST(strftime('%m', date) AS INTEGER) IN ({placeholders})
-            AND weather_condition = ?""",
+            AND weather_condition = ?
+            ORDER BY date DESC""",
         (*months, condition))
     return [row[0] for row in cursor.fetchall()]
 
@@ -125,7 +127,7 @@ def get_generation_by_weather_wide(conn: sqlite3.Connection, month: int, conditi
 def get_generation_by_condition(conn: sqlite3.Connection, condition: str) -> list[float]:
     """Get solar generation for all days matching a weather condition."""
     cursor = conn.execute(
-        "SELECT total_solar_generation_kwh FROM actuals WHERE weather_condition = ?",
+        "SELECT total_solar_generation_kwh FROM actuals WHERE weather_condition = ? ORDER BY date DESC",
         (condition,))
     return [row[0] for row in cursor.fetchall()]
 
@@ -134,7 +136,8 @@ def get_generation_by_month(conn: sqlite3.Connection, month: int) -> list[float]
     """Get solar generation for all days in a given month (any weather)."""
     cursor = conn.execute(
         """SELECT total_solar_generation_kwh FROM actuals
-           WHERE CAST(strftime('%m', date) AS INTEGER) = ?""",
+           WHERE CAST(strftime('%m', date) AS INTEGER) = ?
+           ORDER BY date DESC""",
         (month,))
     return [row[0] for row in cursor.fetchall()]
 
