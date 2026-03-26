@@ -38,14 +38,18 @@ def insert_actuals(conn: sqlite3.Connection, dt: date,
                    solar_gen: float, consumption: float,
                    grid_import: float, grid_export: float,
                    peak_solar_hour: str | None, min_soc: int | None,
-                   max_soc: int | None) -> None:
+                   max_soc: int | None, *,
+                   weather_condition: str | None = None,
+                   expensive_consumption_kwh: float | None = None) -> None:
     conn.execute("""
         INSERT OR REPLACE INTO actuals (date, total_solar_generation_kwh,
             total_consumption_kwh, grid_import_kwh, grid_export_kwh,
-            peak_solar_hour, battery_min_soc, battery_max_soc)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            peak_solar_hour, battery_min_soc, battery_max_soc,
+            weather_condition, expensive_consumption_kwh)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (str(dt), solar_gen, consumption, grid_import, grid_export,
-          peak_solar_hour, min_soc, max_soc))
+          peak_solar_hour, min_soc, max_soc,
+          weather_condition, expensive_consumption_kwh))
     conn.commit()
 
 
@@ -94,3 +98,52 @@ def get_all_decisions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def get_all_actuals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     cursor = conn.execute("SELECT * FROM actuals ORDER BY date DESC")
     return cursor.fetchall()
+
+
+def get_generation_by_weather(conn: sqlite3.Connection, month: int, condition: str) -> list[float]:
+    """Get solar generation for days matching a weather condition in a given month."""
+    cursor = conn.execute(
+        """SELECT total_solar_generation_kwh FROM actuals
+           WHERE CAST(strftime('%m', date) AS INTEGER) = ?
+           AND weather_condition = ?""",
+        (month, condition))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_generation_by_weather_wide(conn: sqlite3.Connection, month: int, condition: str) -> list[float]:
+    """Get solar generation for days matching condition in month +/- 1."""
+    months = [(month - 2) % 12 + 1, month, month % 12 + 1]
+    placeholders = ",".join("?" * len(months))
+    cursor = conn.execute(
+        f"""SELECT total_solar_generation_kwh FROM actuals
+            WHERE CAST(strftime('%m', date) AS INTEGER) IN ({placeholders})
+            AND weather_condition = ?""",
+        (*months, condition))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_generation_by_condition(conn: sqlite3.Connection, condition: str) -> list[float]:
+    """Get solar generation for all days matching a weather condition."""
+    cursor = conn.execute(
+        "SELECT total_solar_generation_kwh FROM actuals WHERE weather_condition = ?",
+        (condition,))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_generation_by_month(conn: sqlite3.Connection, month: int) -> list[float]:
+    """Get solar generation for all days in a given month (any weather)."""
+    cursor = conn.execute(
+        """SELECT total_solar_generation_kwh FROM actuals
+           WHERE CAST(strftime('%m', date) AS INTEGER) = ?""",
+        (month,))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_recent_expensive_consumption(conn: sqlite3.Connection, days: int = 7) -> list[float]:
+    """Get expensive-hours consumption for the most recent N days that have it."""
+    cursor = conn.execute(
+        """SELECT expensive_consumption_kwh FROM actuals
+           WHERE expensive_consumption_kwh IS NOT NULL
+           ORDER BY date DESC LIMIT ?""",
+        (days,))
+    return [row[0] for row in cursor.fetchall()]

@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS actuals (
     grid_export_kwh REAL NOT NULL,
     peak_solar_hour TEXT,
     battery_min_soc INTEGER,
-    battery_max_soc INTEGER
+    battery_max_soc INTEGER,
+    weather_condition TEXT,
+    expensive_consumption_kwh REAL
 );
 
 CREATE TABLE IF NOT EXISTS adjustments (
@@ -40,6 +42,16 @@ CREATE TABLE IF NOT EXISTS adjustments (
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    cursor = conn.execute("PRAGMA table_info(actuals)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    if "weather_condition" not in existing_columns:
+        conn.execute("ALTER TABLE actuals ADD COLUMN weather_condition TEXT")
+    if "expensive_consumption_kwh" not in existing_columns:
+        conn.execute("ALTER TABLE actuals ADD COLUMN expensive_consumption_kwh REAL")
+    conn.commit()
+
+
 def init_db(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -47,4 +59,5 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA_SQL)
     conn.commit()
+    _migrate(conn)
     return conn
