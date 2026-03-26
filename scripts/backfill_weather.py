@@ -5,7 +5,7 @@ and updates the actuals table. Designed to be run once (or re-run safely).
 """
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 # Allow running from project root: python scripts/backfill_weather.py
@@ -24,12 +24,10 @@ def _month_chunks(dates: list[str]) -> list[tuple[date, date]]:
     current_start = date.fromisoformat(dates[0])
     current_month = (current_start.year, current_start.month)
 
-    for ds in dates[1:]:
+    for j, ds in enumerate(dates[1:], 1):
         d = date.fromisoformat(ds)
         if (d.year, d.month) != current_month:
-            # End of previous month chunk — end is last day of that month
-            # find the last date in the previous month
-            chunks.append((current_start, date.fromisoformat(dates[dates.index(ds) - 1])))
+            chunks.append((current_start, date.fromisoformat(dates[j - 1])))
             current_start = d
             current_month = (d.year, d.month)
 
@@ -80,7 +78,7 @@ def main() -> None:
         for day_str, condition in conditions.items():
             if day_str in rows:
                 conn.execute(
-                    "UPDATE actuals SET weather_condition = ? WHERE date = ?",
+                    "UPDATE actuals SET weather_condition = ? WHERE date = ? AND weather_condition IS NULL",
                     (condition, day_str),
                 )
                 updated += 1

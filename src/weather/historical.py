@@ -35,16 +35,8 @@ def classify_day(hourly_cloud: list[float], hourly_precip: list[float]) -> str:
 def fetch_historical_weather(
     lat: float, lon: float, start: date, end: date, timezone: str
 ) -> dict[str, str]:
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "start_date": str(start),
-        "end_date": str(end),
-        "timezone": timezone,
-        "hourly": "cloud_cover,precipitation",
-        "daily": "sunrise,sunset",
-    }
-    resp = requests.get(ARCHIVE_URL, params=params, timeout=30)
+    url = build_archive_url(lat, lon, start, end, timezone)
+    resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
