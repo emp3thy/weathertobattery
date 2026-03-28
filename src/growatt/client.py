@@ -39,20 +39,6 @@ class GrowattClient:
                 logger.warning(f"Attempt {attempt+1} failed: {e}. Retrying in {wait}s")
                 time_module.sleep(wait)
 
-    def get_daily_data(self, month_date: date) -> dict:
-        raw = self._api.dashboard_data(
-            self.config.plant_id, growattServer.Timespan.day, month_date
-        )
-        total_solar = float(raw.get("photovoltaic", "0kWh").replace("kWh", ""))
-        total_load = float(raw.get("elocalLoad", "0kWh").replace("kWh", ""))
-        total_grid_import = float(raw.get("etouser", "0kWh").replace("kWh", ""))
-        return {
-            "total_solar_kwh": total_solar,
-            "total_load_kwh": total_load,
-            "total_grid_import_kwh": total_grid_import,
-            "chart_data": raw.get("chartData", {}),
-        }
-
     def get_hourly_data(self, target_date: date) -> dict:
         """Get 5-minute interval data for a day.
         Returns dict of time_str -> {ppv, sysOut, userLoad, pacToUser}

@@ -12,20 +12,24 @@ def test_login_sets_session(config):
     assert client.logged_in
     mock_api.session.headers.update.assert_called_once()
 
-def test_get_daily_data(config):
+def test_get_hourly_data(config):
     from src.growatt.client import GrowattClient
     mock_api = MagicMock()
     mock_api.login.return_value = {"success": True, "data": [{"plantId": "123"}]}
     mock_api.dashboard_data.return_value = {
-        "chartData": {"ppv": ["10.5", "20.3"], "sysOut": ["5.0", "3.0"],
-                      "pacToUser": ["2.0", "1.5"], "userLoad": ["1.0", "0.5"]},
-        "photovoltaic": "30.8kWh", "elocalLoad": "50.0kWh", "etouser": "8.0kWh",
+        "chartData": {
+            "12:00": {"ppv": "4.6", "sysOut": "1.6", "userLoad": "3.0", "pacToUser": "0"},
+            "12:05": {"ppv": "4.8", "sysOut": "1.5", "userLoad": "3.3", "pacToUser": "0"},
+        },
     }
     with patch("src.growatt.client.growattServer.GrowattApi", return_value=mock_api):
         client = GrowattClient(config.growatt)
         client.login()
-        data = client.get_daily_data(date(2026, 3, 1))
-    assert data["total_solar_kwh"] == pytest.approx(30.8)
+        data = client.get_hourly_data(date(2026, 3, 26))
+    assert len(data) == 2
+    assert data["12:00"]["ppv"] == "4.6"
+    assert data["12:00"]["sysOut"] == "1.6"
+    assert data["12:00"]["userLoad"] == "3.0"
 
 def test_set_charge_soc(config):
     from src.growatt.client import GrowattClient
