@@ -62,12 +62,42 @@ def create_app(db_path: Path) -> FastAPI:
     @app.get("/accuracy", response_class=HTMLResponse)
     def accuracy(request: Request):
         conn = get_conn()
-        rows = conn.execute(
+        raw = conn.execute(
             "SELECT d.date, d.forecast_summary, d.charge_level_set, "
-            "a.total_solar_generation_kwh "
+            "a.total_solar_generation_kwh, a.expensive_grid_import_kwh, "
+            "a.expensive_grid_export_kwh, a.weather_condition "
             "FROM decisions d JOIN actuals a ON d.date = a.date "
             "ORDER BY d.date DESC LIMIT 90"
         ).fetchall()
+        rows = []
+        for r in raw:
+            dt, forecast, charge, actual_solar, grid_import, grid_export, actual_weather = r
+            month = int(dt.split("-")[1])
+            # Calculate what P25 estimate would have been for the forecast condition
+            est_vals = conn.execute(
+                "SELECT total_solar_generation_kwh FROM actuals "
+                "WHERE CAST(strftime('%m', date) AS INTEGER) = ? "
+                "AND weather_condition = ? AND date < ? "
+                "ORDER BY total_solar_generation_kwh",
+                (month, forecast, dt)
+            ).fetchall()
+            if len(est_vals) >= 5:
+                idx = int(len(est_vals) * 0.25)
+                estimated_solar = round(est_vals[idx][0], 1)
+            else:
+                estimated_solar = None
+            rows.append({
+                "date": dt,
+                "forecast": forecast,
+                "actual_weather": actual_weather,
+                "charge": charge,
+                "estimated_solar": estimated_solar,
+                "actual_solar": round(actual_solar, 1) if actual_solar else None,
+                "grid_import": round(grid_import, 1) if grid_import else None,
+                "grid_export": round(grid_export, 1) if grid_export else None,
+                "import_cost": round(grid_import * 0.30, 2) if grid_import else None,
+                "export_cost": round(grid_export * 0.07, 2) if grid_export else None,
+            })
         conn.close()
         return templates.TemplateResponse("accuracy.html", {
             "request": request, "rows": rows

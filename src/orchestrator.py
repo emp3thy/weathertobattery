@@ -30,6 +30,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         total_grid_import = 0.0
         total_grid_export = 0.0
         expensive_consumption = 0.0
+        expensive_grid_import = 0.0
+        expensive_grid_export = 0.0
         peak_solar_hour = None
         peak_solar_val = 0.0
 
@@ -39,14 +41,22 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                 continue
             hour = int(time_str.split(":")[0])
             minute = int(time_str.split(":")[1])
-            ppv = float(values.get("ppv", 0))         # solar generation (kW)
-            sys_out = float(values.get("sysOut", 0))   # load consumption (kW)
-            user_load = float(values.get("userLoad", 0))  # grid export (kW)
-            pac_to_user = float(values.get("pacToUser", 0))  # grid import (kW)
+            # Field mapping:
+            #   ppv        = solar generation (kW)
+            #   sysOut     = total house consumption (kW)
+            #   userLoad   = export to grid (kW)
+            #   pacToUser  = battery discharge to house (kW)
+            # Grid import is derived: max(0, sysOut - ppv - pacToUser)
+            ppv = float(values.get("ppv", 0))
+            sys_out = float(values.get("sysOut", 0))
+            user_load = float(values.get("userLoad", 0))
+            pac_to_user = float(values.get("pacToUser", 0))
+
+            grid_import = max(0, sys_out - ppv - pac_to_user)
 
             total_solar += ppv
             total_consumption += sys_out
-            total_grid_import += pac_to_user
+            total_grid_import += grid_import
             total_grid_export += user_load
 
             if ppv > peak_solar_val:
@@ -57,6 +67,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                            (hour < 23 or (hour == 23 and minute <= 30))
             if is_expensive:
                 expensive_consumption += sys_out
+                expensive_grid_import += grid_import
+                expensive_grid_export += user_load
 
         # Each reading is a 5-minute snapshot in kW; divide by 12 to get kWh
         solar_gen_kwh = total_solar / 12
@@ -64,6 +76,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         grid_import_kwh = total_grid_import / 12
         grid_export_kwh = total_grid_export / 12
         expensive_consumption_kwh = expensive_consumption / 12
+        expensive_grid_import_kwh = expensive_grid_import / 12
+        expensive_grid_export_kwh = expensive_grid_export / 12
 
         # Get weather condition from the decision record for yesterday
         decision = get_decision(conn, yesterday)
@@ -79,6 +93,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
             min_soc=None, max_soc=None,
             weather_condition=weather_condition,
             expensive_consumption_kwh=expensive_consumption_kwh,
+            expensive_grid_import_kwh=expensive_grid_import_kwh,
+            expensive_grid_export_kwh=expensive_grid_export_kwh,
         )
         logger.info(f"Backfilled actuals for {yesterday}")
     except Exception as e:

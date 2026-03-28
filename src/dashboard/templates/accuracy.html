@@ -2,21 +2,132 @@
 {% block title %}Battery Dashboard - Forecast Accuracy{% endblock %}
 {% block content %}
 <h1>Forecast Accuracy</h1>
-<canvas id="accuracyChart"></canvas>
+<p style="color: #666; margin-bottom: 16px;">
+    Compares forecast vs actual solar generation, and shows the cost of getting it wrong.
+    Grid import = undercharged (30p/kWh). Grid export = overcharged (7p/kWh).
+</p>
+
+{% if not rows %}
+<p>No decision data with matching actuals yet. Data will appear after the nightly job has run for a few days.</p>
+{% else %}
+
+<style>
+    .accuracy-table td { font-variant-numeric: tabular-nums; }
+    .forecast-wrong { color: #c00; font-weight: 600; }
+    .cost-import { color: #c00; }
+    .cost-export { color: #666; }
+</style>
+
+<table class="accuracy-table">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Forecast</th>
+            <th>Actual Weather</th>
+            <th>Charge Set</th>
+            <th>Est. Solar (P25)</th>
+            <th>Actual Solar</th>
+            <th>Grid Import (kWh)</th>
+            <th>Import Cost</th>
+            <th>Grid Export (kWh)</th>
+            <th>Export Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+        <tr>
+            <td>{{ row.date }}</td>
+            <td>{{ row.forecast }}</td>
+            <td {% if row.actual_weather != row.forecast %}class="forecast-wrong"{% endif %}>
+                {{ row.actual_weather or '-' }}
+            </td>
+            <td>{{ row.charge }}%</td>
+            <td>{{ row.estimated_solar if row.estimated_solar is not none else '-' }}</td>
+            <td>{{ row.actual_solar if row.actual_solar is not none else '-' }}</td>
+            <td>{{ row.grid_import if row.grid_import is not none else '-' }}</td>
+            <td class="cost-import">
+                {% if row.import_cost is not none %}
+                    {{ "%.2f"|format(row.import_cost) }}p
+                {% else %}-{% endif %}
+            </td>
+            <td>{{ row.grid_export if row.grid_export is not none else '-' }}</td>
+            <td class="cost-export">
+                {% if row.export_cost is not none %}
+                    {{ "%.2f"|format(row.export_cost) }}p
+                {% else %}-{% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+{% if rows|length > 1 %}
+<div class="card" style="margin-top: 20px;">
+    <h3 style="margin-top: 0;">Summary</h3>
+    {% set total_import_cost = rows | selectattr('import_cost') | map(attribute='import_cost') | select('number') | list %}
+    {% set total_export_cost = rows | selectattr('export_cost') | map(attribute='export_cost') | select('number') | list %}
+    <p>
+        Total grid import cost: <span class="cost-import">{{ "%.2f"|format(total_import_cost | sum) }}p</span>
+        ({{ total_import_cost | length }} days with data)
+    </p>
+    <p>
+        Total grid export cost: <span class="cost-export">{{ "%.2f"|format(total_export_cost | sum) }}p</span>
+        ({{ total_export_cost | length }} days with data)
+    </p>
+</div>
+{% endif %}
+
+<canvas id="accuracyChart" style="margin-top: 20px;"></canvas>
 <script>
-const data = {{ rows | list | tojson }};
-const labels = data.map(r => r[0]);
-const actual = data.map(r => r[3]);
+const data = {{ rows | tojson }};
+const labels = data.map(r => r.date).reverse();
+const estimated = data.map(r => r.estimated_solar).reverse();
+const actual = data.map(r => r.actual_solar).reverse();
+const gridImport = data.map(r => r.grid_import).reverse();
+const gridExport = data.map(r => r.grid_export ? -r.grid_export : null).reverse();
+
 new Chart(document.getElementById('accuracyChart'), {
     type: 'bar',
     data: {
         labels: labels,
-        datasets: [{
-            label: 'Actual Solar (kWh)',
-            data: actual,
-            backgroundColor: '#f59e0b'
-        }]
+        datasets: [
+            {
+                label: 'Estimated Solar P25 (kWh)',
+                data: estimated,
+                backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                borderColor: 'rgb(59, 130, 246)',
+                borderWidth: 1
+            },
+            {
+                label: 'Actual Solar (kWh)',
+                data: actual,
+                backgroundColor: 'rgba(245, 158, 11, 0.5)',
+                borderColor: 'rgb(245, 158, 11)',
+                borderWidth: 1
+            },
+            {
+                label: 'Grid Import (kWh) - undercharged',
+                data: gridImport,
+                backgroundColor: 'rgba(220, 38, 38, 0.5)',
+                borderColor: 'rgb(220, 38, 38)',
+                borderWidth: 1
+            },
+            {
+                label: 'Grid Export (kWh) - overcharged',
+                data: gridExport,
+                backgroundColor: 'rgba(107, 114, 128, 0.3)',
+                borderColor: 'rgb(107, 114, 128)',
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        scales: {
+            y: { title: { display: true, text: 'kWh' } }
+        }
     }
 });
 </script>
+
+{% endif %}
 {% endblock %}
