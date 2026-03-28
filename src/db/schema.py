@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS actuals (
     weather_condition TEXT,
     expensive_consumption_kwh REAL,
     expensive_grid_import_kwh REAL,
-    expensive_grid_export_kwh REAL
+    expensive_grid_export_kwh REAL,
+    expensive_solar_kwh REAL,
+    expensive_battery_discharge_kwh REAL
 );
 
 CREATE TABLE IF NOT EXISTS adjustments (
@@ -56,6 +58,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_grid_import_kwh REAL")
     if "expensive_grid_export_kwh" not in existing_columns:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_grid_export_kwh REAL")
+    if "expensive_solar_kwh" not in existing_columns:
+        conn.execute("ALTER TABLE actuals ADD COLUMN expensive_solar_kwh REAL")
+    if "expensive_battery_discharge_kwh" not in existing_columns:
+        conn.execute("ALTER TABLE actuals ADD COLUMN expensive_battery_discharge_kwh REAL")
     conn.commit()
 
 

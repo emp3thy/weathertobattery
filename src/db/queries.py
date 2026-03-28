@@ -42,18 +42,22 @@ def insert_actuals(conn: sqlite3.Connection, dt: date,
                    weather_condition: str | None = None,
                    expensive_consumption_kwh: float | None = None,
                    expensive_grid_import_kwh: float | None = None,
-                   expensive_grid_export_kwh: float | None = None) -> None:
+                   expensive_grid_export_kwh: float | None = None,
+                   expensive_solar_kwh: float | None = None,
+                   expensive_battery_discharge_kwh: float | None = None) -> None:
     conn.execute("""
         INSERT OR REPLACE INTO actuals (date, total_solar_generation_kwh,
             total_consumption_kwh, grid_import_kwh, grid_export_kwh,
             peak_solar_hour, battery_min_soc, battery_max_soc,
             weather_condition, expensive_consumption_kwh,
-            expensive_grid_import_kwh, expensive_grid_export_kwh)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            expensive_grid_import_kwh, expensive_grid_export_kwh,
+            expensive_solar_kwh, expensive_battery_discharge_kwh)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (str(dt), solar_gen, consumption, grid_import, grid_export,
           peak_solar_hour, min_soc, max_soc,
           weather_condition, expensive_consumption_kwh,
-          expensive_grid_import_kwh, expensive_grid_export_kwh))
+          expensive_grid_import_kwh, expensive_grid_export_kwh,
+          expensive_solar_kwh, expensive_battery_discharge_kwh))
     conn.commit()
 
 

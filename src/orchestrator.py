@@ -32,6 +32,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         expensive_consumption = 0.0
         expensive_grid_import = 0.0
         expensive_grid_export = 0.0
+        expensive_solar = 0.0
+        expensive_battery_discharge = 0.0
         peak_solar_hour = None
         peak_solar_val = 0.0
 
@@ -69,6 +71,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                 expensive_consumption += sys_out
                 expensive_grid_import += grid_import
                 expensive_grid_export += user_load
+                expensive_solar += ppv
+                expensive_battery_discharge += pac_to_user
 
         # Each reading is a 5-minute snapshot in kW; divide by 12 to get kWh
         solar_gen_kwh = total_solar / 12
@@ -78,6 +82,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         expensive_consumption_kwh = expensive_consumption / 12
         expensive_grid_import_kwh = expensive_grid_import / 12
         expensive_grid_export_kwh = expensive_grid_export / 12
+        expensive_solar_kwh = expensive_solar / 12
+        expensive_battery_discharge_kwh = expensive_battery_discharge / 12
 
         # Get weather condition from the decision record for yesterday
         decision = get_decision(conn, yesterday)
@@ -95,6 +101,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
             expensive_consumption_kwh=expensive_consumption_kwh,
             expensive_grid_import_kwh=expensive_grid_import_kwh,
             expensive_grid_export_kwh=expensive_grid_export_kwh,
+            expensive_solar_kwh=expensive_solar_kwh,
+            expensive_battery_discharge_kwh=expensive_battery_discharge_kwh,
         )
         logger.info(f"Backfilled actuals for {yesterday}")
     except Exception as e:

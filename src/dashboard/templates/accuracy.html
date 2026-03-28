@@ -3,13 +3,16 @@
 {% block content %}
 <h1>Forecast Accuracy</h1>
 <p style="color: #666; margin-bottom: 16px;">
-    Compares forecast vs actual solar generation, and shows the cost of getting it wrong.
-    Grid import = undercharged (30p/kWh). Grid export = overcharged (7p/kWh).
+    Expensive hours (05:30-23:30) energy balance. Supply = solar + battery. Demand = usage.
+    Grid import (red) = undercharged. Grid export (green) = overcharged.
+    Lines show estimated vs actual solar generation.
 </p>
 
 {% if not rows %}
 <p>No decision data with matching actuals yet. Data will appear after the nightly job has run for a few days.</p>
 {% else %}
+
+<canvas id="combinedChart" style="margin-bottom: 30px;"></canvas>
 
 <style>
     .accuracy-table td { font-variant-numeric: tabular-nums; }
@@ -18,19 +21,23 @@
     .cost-export { color: #666; }
 </style>
 
+<h2>Detail</h2>
 <table class="accuracy-table">
     <thead>
         <tr>
             <th>Date</th>
             <th>Forecast</th>
-            <th>Actual Weather</th>
-            <th>Charge Set</th>
-            <th>Est. Solar (P25)</th>
-            <th>Actual Solar</th>
-            <th>Grid Import (kWh)</th>
-            <th>Import Cost</th>
-            <th>Grid Export (kWh)</th>
-            <th>Export Cost</th>
+            <th>Actual</th>
+            <th>Charge</th>
+            <th>Est. Solar</th>
+            <th>Act. Solar</th>
+            <th>Usage</th>
+            <th>Solar</th>
+            <th>Battery</th>
+            <th>Grid In</th>
+            <th>Cost (30p)</th>
+            <th>Grid Out</th>
+            <th>Cost (7p)</th>
         </tr>
     </thead>
     <tbody>
@@ -44,6 +51,9 @@
             <td>{{ row.charge }}%</td>
             <td>{{ row.estimated_solar if row.estimated_solar is not none else '-' }}</td>
             <td>{{ row.actual_solar if row.actual_solar is not none else '-' }}</td>
+            <td>{{ row.consumption if row.consumption is not none else '-' }}</td>
+            <td>{{ row.exp_solar if row.exp_solar is not none else '-' }}</td>
+            <td>{{ row.exp_battery if row.exp_battery is not none else '-' }}</td>
             <td>{{ row.grid_import if row.grid_import is not none else '-' }}</td>
             <td class="cost-import">
                 {% if row.import_cost is not none %}
@@ -77,53 +87,98 @@
 </div>
 {% endif %}
 
-<canvas id="accuracyChart" style="margin-top: 20px;"></canvas>
 <script>
 const data = {{ rows | tojson }};
 const labels = data.map(r => r.date).reverse();
 const estimated = data.map(r => r.estimated_solar).reverse();
 const actual = data.map(r => r.actual_solar).reverse();
+const consumption = data.map(r => r.consumption).reverse();
+const expSolar = data.map(r => r.exp_solar).reverse();
+const expBattery = data.map(r => r.exp_battery).reverse();
 const gridImport = data.map(r => r.grid_import).reverse();
-const gridExport = data.map(r => r.grid_export ? -r.grid_export : null).reverse();
+const gridExport = data.map(r => r.grid_export).reverse();
 
-new Chart(document.getElementById('accuracyChart'), {
+new Chart(document.getElementById('combinedChart'), {
     type: 'bar',
     data: {
         labels: labels,
         datasets: [
             {
-                label: 'Estimated Solar P25 (kWh)',
-                data: estimated,
-                backgroundColor: 'rgba(59, 130, 246, 0.5)',
-                borderColor: 'rgb(59, 130, 246)',
-                borderWidth: 1
+                label: 'Solar (expensive hrs)',
+                data: expSolar,
+                backgroundColor: 'rgba(250, 204, 21, 0.6)',
+                borderColor: 'rgb(234, 179, 8)',
+                borderWidth: 1,
+                stack: 'supply'
             },
             {
-                label: 'Actual Solar (kWh)',
-                data: actual,
-                backgroundColor: 'rgba(245, 158, 11, 0.5)',
-                borderColor: 'rgb(245, 158, 11)',
-                borderWidth: 1
+                label: 'Battery discharge (expensive hrs)',
+                data: expBattery,
+                backgroundColor: 'rgba(139, 92, 246, 0.5)',
+                borderColor: 'rgb(139, 92, 246)',
+                borderWidth: 1,
+                stack: 'supply'
             },
             {
-                label: 'Grid Import (kWh) - undercharged',
+                label: 'Grid import — undercharged',
                 data: gridImport,
-                backgroundColor: 'rgba(220, 38, 38, 0.5)',
+                backgroundColor: 'rgba(220, 38, 38, 0.6)',
                 borderColor: 'rgb(220, 38, 38)',
-                borderWidth: 1
+                borderWidth: 1,
+                stack: 'supply'
             },
             {
-                label: 'Grid Export (kWh) - overcharged',
-                data: gridExport,
-                backgroundColor: 'rgba(107, 114, 128, 0.3)',
+                label: 'Usage (expensive hrs)',
+                data: consumption,
+                backgroundColor: 'rgba(107, 114, 128, 0.4)',
                 borderColor: 'rgb(107, 114, 128)',
-                borderWidth: 1
+                borderWidth: 1,
+                stack: 'demand'
+            },
+            {
+                label: 'Grid export — overcharged',
+                data: gridExport,
+                backgroundColor: 'rgba(34, 197, 94, 0.5)',
+                borderColor: 'rgb(34, 197, 94)',
+                borderWidth: 1,
+                stack: 'demand'
+            },
+            {
+                label: 'Estimated Solar P25',
+                data: estimated,
+                type: 'line',
+                borderColor: 'rgb(59, 130, 246)',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointRadius: 4,
+                pointBackgroundColor: 'rgb(59, 130, 246)',
+                fill: false,
+                order: 1
+            },
+            {
+                label: 'Actual Solar (total day)',
+                data: actual,
+                type: 'line',
+                borderColor: 'rgb(245, 158, 11)',
+                borderWidth: 2,
+                pointRadius: 4,
+                pointBackgroundColor: 'rgb(245, 158, 11)',
+                fill: false,
+                order: 1
             }
         ]
     },
     options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
         scales: {
-            y: { title: { display: true, text: 'kWh' } }
+            y: {
+                title: { display: true, text: 'kWh' },
+                beginAtZero: true
+            }
+        },
+        plugins: {
+            tooltip: { mode: 'index', intersect: false }
         }
     }
 });

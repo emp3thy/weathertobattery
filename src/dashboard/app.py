@@ -65,13 +65,15 @@ def create_app(db_path: Path) -> FastAPI:
         raw = conn.execute(
             "SELECT d.date, d.forecast_summary, d.charge_level_set, "
             "a.total_solar_generation_kwh, a.expensive_grid_import_kwh, "
-            "a.expensive_grid_export_kwh, a.weather_condition "
+            "a.expensive_grid_export_kwh, a.weather_condition, "
+            "a.expensive_consumption_kwh, a.expensive_solar_kwh, "
+            "a.expensive_battery_discharge_kwh "
             "FROM decisions d JOIN actuals a ON d.date = a.date "
             "ORDER BY d.date DESC LIMIT 90"
         ).fetchall()
         rows = []
         for r in raw:
-            dt, forecast, charge, actual_solar, grid_import, grid_export, actual_weather = r
+            dt, forecast, charge, actual_solar, grid_import, grid_export, actual_weather, consumption, exp_solar, exp_battery = r
             month = int(dt.split("-")[1])
             # Calculate what P25 estimate would have been for the forecast condition
             est_vals = conn.execute(
@@ -93,10 +95,13 @@ def create_app(db_path: Path) -> FastAPI:
                 "charge": charge,
                 "estimated_solar": estimated_solar,
                 "actual_solar": round(actual_solar, 1) if actual_solar else None,
+                "consumption": round(consumption, 1) if consumption else None,
                 "grid_import": round(grid_import, 1) if grid_import else None,
                 "grid_export": round(grid_export, 1) if grid_export else None,
                 "import_cost": round(grid_import * 0.30, 2) if grid_import else None,
                 "export_cost": round(grid_export * 0.07, 2) if grid_export else None,
+                "exp_solar": round(exp_solar, 1) if exp_solar else None,
+                "exp_battery": round(exp_battery, 1) if exp_battery else None,
             })
         conn.close()
         return templates.TemplateResponse("accuracy.html", {
