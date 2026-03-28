@@ -1,5 +1,6 @@
 # src/dashboard/app.py
 import sqlite3
+import statistics
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -107,6 +108,39 @@ def create_app(db_path: Path) -> FastAPI:
             "request": request,
             "daily": daily,
             "hourly_profile": hourly_profile,
+        })
+
+    @app.get("/generation-stats", response_class=HTMLResponse)
+    def generation_stats(request: Request):
+        conn = get_conn()
+        rows = []
+        for month in range(1, 13):
+            for cond in ['sunny', 'cloudy', 'rainy']:
+                cursor = conn.execute(
+                    "SELECT total_solar_generation_kwh FROM actuals "
+                    "WHERE CAST(strftime('%m', date) AS INTEGER) = ? "
+                    "AND weather_condition = ? "
+                    "ORDER BY total_solar_generation_kwh",
+                    (month, cond))
+                vals = [r[0] for r in cursor.fetchall()]
+                if len(vals) < 3:
+                    continue
+                n = len(vals)
+                rows.append({
+                    "month": month,
+                    "condition": cond,
+                    "n": n,
+                    "avg": round(statistics.mean(vals), 1),
+                    "median": round(statistics.median(vals), 1),
+                    "stdev": round(statistics.stdev(vals), 1),
+                    "p25": round(vals[int(n * 0.25)], 1),
+                    "p75": round(vals[int(n * 0.75)], 1),
+                    "min": round(min(vals), 1),
+                    "max": round(max(vals), 1),
+                })
+        conn.close()
+        return templates.TemplateResponse("generation_stats.html", {
+            "request": request, "rows": rows
         })
 
     def _table_exists(conn, table_name: str) -> bool:

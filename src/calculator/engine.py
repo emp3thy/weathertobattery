@@ -35,28 +35,34 @@ def _estimate_consumption(conn: sqlite3.Connection) -> tuple[float, str]:
     return 0.0, "no consumption data"
 
 
+def _percentile_25(values: list[float]) -> float:
+    s = sorted(values)
+    idx = int(len(s) * 0.25)
+    return s[idx]
+
+
 def _estimate_generation(
     conn: sqlite3.Connection, month: int, condition: str
 ) -> tuple[float, str]:
     results = get_generation_by_weather(conn, month, condition)
     if len(results) >= 5:
-        avg = sum(results) / len(results)
-        return avg, f"generation by month+condition ({len(results)} days): {avg:.3f}kWh"
+        p25 = _percentile_25(results)
+        return p25, f"generation P25 by month+condition ({len(results)} days): {p25:.3f}kWh"
 
     results = get_generation_by_weather_wide(conn, month, condition)
     if len(results) >= 5:
-        avg = sum(results) / len(results)
-        return avg, f"generation by month±1+condition ({len(results)} days): {avg:.3f}kWh"
+        p25 = _percentile_25(results)
+        return p25, f"generation P25 by month±1+condition ({len(results)} days): {p25:.3f}kWh"
 
     results = get_generation_by_condition(conn, condition)
     if len(results) >= 5:
-        avg = sum(results) / len(results)
-        return avg, f"generation by condition only ({len(results)} days): {avg:.3f}kWh"
+        p25 = _percentile_25(results)
+        return p25, f"generation P25 by condition only ({len(results)} days): {p25:.3f}kWh"
 
     results = get_generation_by_month(conn, month)
     if results:
-        avg = sum(results) / len(results)
-        return avg, f"generation by month only ({len(results)} days): {avg:.3f}kWh"
+        p25 = _percentile_25(results)
+        return p25, f"generation P25 by month only ({len(results)} days): {p25:.3f}kWh"
 
     return 0.0, "no historical data"
 
