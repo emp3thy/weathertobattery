@@ -6,76 +6,29 @@ from pathlib import Path
 from .config import Config
 from .weather.interface import WeatherProvider, DayForecast
 from .growatt.client import GrowattClient
-from .calculator.engine import calculate_charge, is_winter
-from .calculator.profiles import build_solar_profile
-from .calculator.feedback import compute_feedback_adjustment, apply_decay
+from .calculator.engine import calculate_charge
 from .db.queries import (
-    upsert_decision, get_decision, get_actuals, insert_actuals,
-    get_recent_adjustments, insert_adjustment, get_actuals_range
+    upsert_decision, get_decision, get_actuals, insert_actuals
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _get_historical_data(conn, target_date: date, window_weeks: int = 2) -> tuple[list[float], list[float], list[float]]:
-    start = target_date - timedelta(weeks=window_weeks)
-    end = target_date - timedelta(days=1)
-    rows = get_actuals_range(conn, start, end)
-    consumption = [row["total_consumption_kwh"] for row in rows]
-    generation = [row["total_solar_generation_kwh"] for row in rows]
-    grid_import = [row["grid_import_kwh"] for row in rows]
-    return consumption, generation, grid_import
-
-
-def _get_feedback_state(conn, config: Config, today_weather: str, tomorrow_weather: str) -> int:
-    today = date.today()
-    actuals = get_actuals(conn, today)
-    if actuals is None:
-        return 0
-
-    recent = get_recent_adjustments(conn, days=7)
-    previous_cumulative = sum(
-        r["amount"] if r["direction"] == "up" else -r["amount"]
-        for r in recent
-    )
-    previous_cumulative = apply_decay(previous_cumulative, config.feedback.decay_per_day_pct)
-
-    adj = compute_feedback_adjustment(
-        config=config,
-        today_grid_import_kwh=actuals["grid_import_kwh"],
-        today_surplus_export_kwh=actuals["grid_export_kwh"],
-        today_weather=today_weather,
-        tomorrow_weather=tomorrow_weather,
-        previous_cumulative=previous_cumulative,
-    )
-
-    if adj != 0:
-        insert_adjustment(
-            conn, today,
-            direction="up" if adj > 0 else "down",
-            amount=abs(adj),
-            trigger="grid_draw" if adj > 0 else "surplus_export",
-            prev_weather=today_weather,
-            tomorrow_forecast=tomorrow_weather,
-            grid_draw=actuals["grid_import_kwh"],
-            surplus_export=actuals["grid_export_kwh"],
-        )
-
-    return adj
-
-
-def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config, target_date: date) -> None:
-    today = target_date - timedelta(days=1)
-    existing = get_actuals(conn, today)
+def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
+                      target_date: date) -> None:
+    """Backfill yesterday's actuals including expensive-hours consumption."""
+    yesterday = target_date - timedelta(days=1)
+    existing = get_actuals(conn, yesterday)
     if existing:
         return
 
     try:
-        hourly = growatt_client.get_hourly_data(today)
-        daily = growatt_client.get_daily_data(today)
+        hourly = growatt_client.get_hourly_data(yesterday)
+        daily = growatt_client.get_daily_data(yesterday)
 
         grid_import_expensive = 0.0
         grid_export_total = 0.0
+        expensive_consumption = 0.0
         peak_solar_hour = None
         peak_solar_val = 0.0
 
@@ -97,23 +50,31 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config, targe
                            (hour < 23 or (hour == 23 and minute <= 30))
             if is_expensive:
                 grid_import_expensive += pac_to_user
+                expensive_consumption += sys_out
             grid_export_total += sys_out
 
         grid_import_kwh = grid_import_expensive / 12
         grid_export_kwh = grid_export_total / 12
+        expensive_consumption_kwh = expensive_consumption / 12
+
+        # Get weather condition from the decision record for yesterday
+        decision = get_decision(conn, yesterday)
+        weather_condition = decision["forecast_summary"] if decision else None
 
         insert_actuals(
-            conn, today,
+            conn, yesterday,
             solar_gen=daily.get("total_solar_kwh", 0),
             consumption=daily.get("total_load_kwh", 0),
             grid_import=grid_import_kwh,
             grid_export=grid_export_kwh,
             peak_solar_hour=peak_solar_hour,
             min_soc=None, max_soc=None,
+            weather_condition=weather_condition,
+            expensive_consumption_kwh=expensive_consumption_kwh,
         )
-        logger.info(f"Backfilled actuals for {today}")
+        logger.info(f"Backfilled actuals for {yesterday}")
     except Exception as e:
-        logger.warning(f"Failed to backfill actuals for {today}: {e}")
+        logger.warning(f"Failed to backfill actuals for {yesterday}: {e}")
 
 
 def _clear_manual_override(config_path: Path) -> None:
@@ -149,13 +110,6 @@ def _write_last_updated(path: Path, result: dict, forecast: DayForecast | None) 
             f"- Solar hours: {len(forecast.hourly)}",
             f"",
         ])
-    if result.get("feedback_adjustment", 0) != 0:
-        lines.extend([
-            f"## Feedback Adjustment",
-            f"",
-            f"- Adjustment: {result['feedback_adjustment']:+d}%",
-            f"",
-        ])
     if result.get("errors"):
         lines.extend([
             f"## Errors",
@@ -173,27 +127,21 @@ def run_nightly(
     timestamp = datetime.now().isoformat()
     errors = []
     forecast = None
-    feedback_adj = 0
     current_soc = None
 
     # Backfill yesterday's actuals
     _backfill_actuals(conn, growatt_client, config, target_date)
 
-    # Read current SOC once
+    # Read current SOC
     try:
         current_soc = growatt_client.get_current_soc()
     except Exception as e:
         logger.warning(f"Failed to read SOC: {e}")
 
-    # Winter override
-    if is_winter(target_date, config):
-        charge_level = 100
-        reason = "Winter override: charging to 100%"
-        base_level = 100
-    elif config.manual_override is not None:
+    # Manual override
+    if config.manual_override is not None:
         charge_level = config.manual_override
         reason = f"Manual override: {charge_level}%"
-        base_level = charge_level
         try:
             _clear_manual_override(project_root / "config.yaml")
         except Exception as e:
@@ -219,23 +167,12 @@ def run_nightly(
         if forecast is None:
             charge_level = 90
             reason = "Weather API unavailable — fallback to 90%"
-            base_level = 90
         else:
-            today_decision = get_decision(conn, date.today())
-            today_weather = today_decision["forecast_summary"] if today_decision else "cloudy"
-            feedback_adj = _get_feedback_state(conn, config, today_weather, forecast.condition)
-
-            consumption, generation, hist_grid_import = _get_historical_data(conn, target_date)
-            solar_profile = None  # Built from cached hourly data when available
-
             calc_result = calculate_charge(
-                config=config, forecast=forecast, current_soc=current_soc or 0,
-                historical_consumption=consumption, historical_generation=generation,
-                feedback_adjustment=feedback_adj, solar_profile=solar_profile,
-                historical_grid_import=hist_grid_import,
+                config=config, forecast=forecast,
+                current_soc=current_soc or 0, conn=conn,
             )
             charge_level = calc_result.charge_level
-            base_level = calc_result.base_level
             reason = calc_result.reason
 
     # Set on Growatt
@@ -256,8 +193,8 @@ def run_nightly(
         forecast_summary=forecast.condition if forecast else "unknown",
         forecast_detail=forecast_detail,
         charge_level_set=charge_level,
-        base_charge_level=base_level,
-        feedback_adjustment=feedback_adj,
+        base_charge_level=charge_level,
+        feedback_adjustment=0,
         adjustment_reason=reason,
         current_soc=current_soc,
         month=target_date.month,
@@ -267,8 +204,6 @@ def run_nightly(
     result = {
         "success": len(errors) == 0,
         "charge_level": charge_level,
-        "base_level": base_level,
-        "feedback_adjustment": feedback_adj,
         "reason": reason,
         "target_date": str(target_date),
         "timestamp": timestamp,

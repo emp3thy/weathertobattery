@@ -27,7 +27,6 @@ class GrowattConfig:
 class BatteryConfig:
     total_capacity_kwh: float
     usable_fraction: float
-    charge_floor_pct: int
 
     @property
     def usable_capacity_kwh(self) -> float:
@@ -49,26 +48,6 @@ class RatesConfig:
 
 
 @dataclass
-class WinterOverrideConfig:
-    start: str
-    end: str
-
-
-@dataclass
-class FeedbackConfig:
-    max_per_night_pct: int
-    max_cumulative_pct: int
-    decay_per_day_pct: int
-
-
-@dataclass
-class BootstrapConfig:
-    spring_autumn_pct: int
-    sunny_summer_pct: int
-    winter_pct: int
-
-
-@dataclass
 class DashboardConfig:
     port: int
 
@@ -80,18 +59,11 @@ class Config:
     battery: BatteryConfig
     weather: WeatherConfig
     rates: RatesConfig
-    winter_override: WinterOverrideConfig
-    feedback: FeedbackConfig
-    bootstrap: BootstrapConfig
     dashboard: DashboardConfig
     manual_override: int | None
 
 
 def _validate(cfg: Config) -> None:
-    if not (0 <= cfg.battery.charge_floor_pct <= 100):
-        raise ConfigValidationError(
-            f"charge_floor_pct must be 0-100, got {cfg.battery.charge_floor_pct}"
-        )
     if cfg.battery.total_capacity_kwh <= 0:
         raise ConfigValidationError("total_capacity_kwh must be positive")
     if not (0 < cfg.battery.usable_fraction <= 1):
@@ -104,15 +76,16 @@ def load_config(path: Path) -> Config:
     with open(path) as f:
         raw = yaml.safe_load(f)
 
+    battery_raw = raw["battery"]
+    # charge_floor_pct may still be in old configs — ignore it
+    battery_raw.pop("charge_floor_pct", None)
+
     cfg = Config(
         location=LocationConfig(**raw["location"]),
         growatt=GrowattConfig(**raw["growatt"]),
-        battery=BatteryConfig(**raw["battery"]),
+        battery=BatteryConfig(**battery_raw),
         weather=WeatherConfig(**raw["weather"]),
         rates=RatesConfig(**raw["rates"]),
-        winter_override=WinterOverrideConfig(**raw["winter_override"]),
-        feedback=FeedbackConfig(**raw["feedback"]),
-        bootstrap=BootstrapConfig(**raw["bootstrap"]),
         dashboard=DashboardConfig(**raw["dashboard"]),
         manual_override=raw.get("manual_override"),
     )
