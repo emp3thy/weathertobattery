@@ -211,3 +211,45 @@ def test_solar_day_length_equator_stable():
     winter = solar_day_length(0.0, date(2026, 12, 21))
     assert abs(summer - winter) < 1.0
     assert 11.5 <= summer <= 12.5
+
+
+def test_get_max_generation_for_month(tmp_path):
+    from src.db.queries import get_max_generation_for_month
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=3, condition="sunny", values=[10.0, 25.0, 15.0, 20.0, 5.0])
+    result = get_max_generation_for_month(conn, 3)
+    assert result is not None
+    max_kwh, max_date = result
+    assert max_kwh == 25.0
+    assert max_date == "2025-03-02"
+
+
+def test_get_max_generation_for_month_no_data(tmp_path):
+    from src.db.queries import get_max_generation_for_month
+    conn = _make_db(tmp_path)
+    result = get_max_generation_for_month(conn, 3)
+    assert result is None
+
+
+def test_get_max_generation_for_adjacent_months(tmp_path):
+    from src.db.queries import get_max_generation_for_adjacent_months
+    conn = _make_db(tmp_path)
+    # No data for month 4, but data in month 3 and 5
+    _populate_generation(conn, month=3, condition="sunny", values=[20.0, 30.0])
+    _populate_generation(conn, month=5, condition="sunny", values=[35.0, 28.0])
+    result = get_max_generation_for_adjacent_months(conn, 4)
+    assert result is not None
+    max_kwh, max_date = result
+    assert max_kwh == 35.0
+    assert max_date == "2025-05-01"
+
+
+def test_get_max_generation_for_adjacent_months_wraps_december(tmp_path):
+    from src.db.queries import get_max_generation_for_adjacent_months
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=1, condition="cloudy", values=[8.0, 12.0])
+    _populate_generation(conn, month=11, condition="cloudy", values=[10.0, 9.0])
+    result = get_max_generation_for_adjacent_months(conn, 12)
+    assert result is not None
+    max_kwh, max_date = result
+    assert max_kwh == 12.0

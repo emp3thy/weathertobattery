@@ -158,3 +158,31 @@ def get_recent_expensive_consumption(conn: sqlite3.Connection, days: int = 7) ->
            ORDER BY date DESC LIMIT ?""",
         (days,))
     return [row[0] for row in cursor.fetchall()]
+
+
+def get_max_generation_for_month(conn: sqlite3.Connection, month: int) -> tuple[float, str] | None:
+    """Return (max_generation_kwh, date_str) for the best generation day in a month."""
+    cursor = conn.execute(
+        """SELECT total_solar_generation_kwh, date FROM actuals
+           WHERE CAST(strftime('%m', date) AS INTEGER) = ?
+           ORDER BY total_solar_generation_kwh DESC LIMIT 1""",
+        (month,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return (row[0], row[1])
+
+
+def get_max_generation_for_adjacent_months(conn: sqlite3.Connection, month: int) -> tuple[float, str] | None:
+    """Return (max_generation_kwh, date_str) for the best generation day in month +/- 1."""
+    months = [(month - 2) % 12 + 1, month % 12 + 1]
+    placeholders = ",".join("?" * len(months))
+    cursor = conn.execute(
+        f"""SELECT total_solar_generation_kwh, date FROM actuals
+            WHERE CAST(strftime('%m', date) AS INTEGER) IN ({placeholders})
+            ORDER BY total_solar_generation_kwh DESC LIMIT 1""",
+        tuple(months))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return (row[0], row[1])
