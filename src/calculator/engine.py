@@ -6,10 +6,6 @@ from ..config import Config
 from ..weather.interface import DayForecast
 from ..db.queries import (
     get_recent_expensive_consumption,
-    get_generation_by_weather,
-    get_generation_by_weather_wide,
-    get_generation_by_condition,
-    get_generation_by_month,
     get_max_generation_for_month,
     get_max_generation_for_adjacent_months,
 )
@@ -66,38 +62,6 @@ def _estimate_consumption(conn: sqlite3.Connection) -> tuple[float, str]:
         return avg, f"total consumption fallback ({len(rows)} days): {avg:.3f}kWh"
 
     return 0.0, "no consumption data"
-
-
-def _percentile_25(values: list[float]) -> float:
-    s = sorted(values)
-    idx = int(len(s) * 0.25)
-    return s[idx]
-
-
-def _estimate_generation(
-    conn: sqlite3.Connection, month: int, condition: str
-) -> tuple[float, str]:
-    results = get_generation_by_weather(conn, month, condition)
-    if len(results) >= 5:
-        p25 = _percentile_25(results)
-        return p25, f"generation P25 by month+condition ({len(results)} days): {p25:.3f}kWh"
-
-    results = get_generation_by_weather_wide(conn, month, condition)
-    if len(results) >= 5:
-        p25 = _percentile_25(results)
-        return p25, f"generation P25 by month±1+condition ({len(results)} days): {p25:.3f}kWh"
-
-    results = get_generation_by_condition(conn, condition)
-    if len(results) >= 5:
-        p25 = _percentile_25(results)
-        return p25, f"generation P25 by condition only ({len(results)} days): {p25:.3f}kWh"
-
-    results = get_generation_by_month(conn, month)
-    if results:
-        p25 = _percentile_25(results)
-        return p25, f"generation P25 by month only ({len(results)} days): {p25:.3f}kWh"
-
-    return 0.0, "no historical data"
 
 
 def _estimate_generation_hourly(
