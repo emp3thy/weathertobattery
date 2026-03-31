@@ -1,5 +1,7 @@
+import math
 import sqlite3
 from dataclasses import dataclass
+from datetime import date
 from ..config import Config
 from ..weather.interface import DayForecast
 from ..db.queries import (
@@ -9,6 +11,35 @@ from ..db.queries import (
     get_generation_by_condition,
     get_generation_by_month,
 )
+
+
+def solar_day_length(latitude_degrees: float, target_date: date) -> float:
+    """Calculate hours of sunlight from latitude and date.
+
+    Uses the astronomical sunrise equation with atmospheric refraction
+    correction. Accurate to within ~5 minutes at UK latitudes.
+    """
+    lat_rad = math.radians(latitude_degrees)
+    day_of_year = target_date.timetuple().tm_yday
+
+    declination_rad = math.asin(
+        math.sin(math.radians(23.44))
+        * math.sin(math.radians(360 / 365 * (day_of_year - 81)))
+    )
+
+    correction_rad = math.radians(-0.8333)
+    cos_hour_angle = (
+        (math.sin(correction_rad) - math.sin(lat_rad) * math.sin(declination_rad))
+        / (math.cos(lat_rad) * math.cos(declination_rad))
+    )
+
+    if cos_hour_angle >= 1.0:
+        return 0.0
+    if cos_hour_angle <= -1.0:
+        return 24.0
+
+    hour_angle = math.acos(cos_hour_angle)
+    return (24.0 / math.pi) * hour_angle
 
 
 @dataclass

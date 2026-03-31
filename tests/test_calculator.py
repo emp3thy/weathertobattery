@@ -1,3 +1,4 @@
+import math
 import pytest
 from datetime import date, time
 from pathlib import Path
@@ -176,3 +177,37 @@ def test_charge_clamped_to_zero_with_massive_generation(tmp_path, config):
     result = calculate_charge(config=config, forecast=forecast,
                               current_soc=80, conn=conn)
     assert result.charge_level == 0
+
+
+# --------------------------------------------------------------------------- #
+# Test solar_day_length
+# --------------------------------------------------------------------------- #
+
+def test_solar_day_length_summer_solstice_london():
+    from src.calculator.engine import solar_day_length
+    # London (51.5N) summer solstice — expect ~16.5 hours
+    hours = solar_day_length(51.5, date(2026, 6, 21))
+    assert 16.0 <= hours <= 17.0
+
+
+def test_solar_day_length_winter_solstice_london():
+    from src.calculator.engine import solar_day_length
+    # London (51.5N) winter solstice — expect ~8 hours
+    hours = solar_day_length(51.5, date(2026, 12, 21))
+    assert 7.5 <= hours <= 8.5
+
+
+def test_solar_day_length_equinox():
+    from src.calculator.engine import solar_day_length
+    # Equinox — expect ~12 hours at any mid-latitude
+    hours = solar_day_length(51.5, date(2026, 3, 20))
+    assert 11.5 <= hours <= 12.5
+
+
+def test_solar_day_length_equator_stable():
+    from src.calculator.engine import solar_day_length
+    # Equator — always ~12 hours
+    summer = solar_day_length(0.0, date(2026, 6, 21))
+    winter = solar_day_length(0.0, date(2026, 12, 21))
+    assert abs(summer - winter) < 1.0
+    assert 11.5 <= summer <= 12.5
