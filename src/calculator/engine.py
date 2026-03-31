@@ -148,10 +148,11 @@ def calculate_charge(
         )
 
     month = forecast.date.month
-    condition = forecast.condition
 
     expected_consumption, consumption_source = _estimate_consumption(conn)
-    expected_generation, generation_source = _estimate_generation(conn, month, condition)
+    expected_generation, generation_source = _estimate_generation_hourly(
+        conn, month, forecast, config.location.latitude
+    )
 
     usable_capacity_kwh = config.battery.usable_capacity_kwh
     current_soc_kwh = (current_soc / 100) * usable_capacity_kwh

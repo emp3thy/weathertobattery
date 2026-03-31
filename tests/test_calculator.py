@@ -137,7 +137,7 @@ def test_falls_back_to_wider_month_window(tmp_path, config):
     result = calculate_charge(config=config, forecast=forecast,
                               current_soc=50, conn=conn)
     # Should have found enough data via wide window
-    assert "month±1" in result.reason or "month" in result.reason
+    assert "max" in result.reason.lower() or "adjacent" in result.reason.lower()
     assert result.charge_level <= 30
 
 
