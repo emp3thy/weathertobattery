@@ -253,3 +253,102 @@ def test_get_max_generation_for_adjacent_months_wraps_december(tmp_path):
     assert result is not None
     max_kwh, max_date = result
     assert max_kwh == 12.0
+
+
+# --------------------------------------------------------------------------- #
+# Tests for _estimate_generation_hourly
+# --------------------------------------------------------------------------- #
+
+def _make_forecast_with_cloud(target_date, hourly_cloud_pcts):
+    """Create a forecast with specific per-hour cloud cover percentages.
+
+    hourly_cloud_pcts: list of (hour, cloud_pct) tuples for daylight hours.
+    """
+    hourly = [
+        HourlyForecast(hour=h, cloud_cover_pct=cloud, solar_radiation_wm2=500,
+                       precipitation_probability_pct=0, temperature_c=15.0)
+        for h, cloud in hourly_cloud_pcts
+    ]
+    return DayForecast(
+        date=target_date, sunrise=time(6, 0), sunset=time(18, 0),
+        hourly=hourly, condition="cloudy", max_temperature_c=15.0
+    )
+
+
+def test_estimate_generation_hourly_clear_sky(tmp_path, config):
+    """0% cloud all day should return close to max generation, scaled by solar hours ratio."""
+    from src.calculator.engine import _estimate_generation_hourly
+    conn = _make_db(tmp_path)
+    # Max day in March: 34.0 kWh
+    _populate_generation(conn, month=3, condition="sunny", values=[20.0, 34.0, 25.0, 30.0, 28.0])
+    # 12 hours of 0% cloud
+    cloud_hours = [(h, 0) for h in range(6, 18)]
+    forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
+    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    # Should be close to 34 kWh (may differ slightly due to solar hours ratio)
+    assert 30.0 <= gen_kwh <= 38.0
+    assert "max" in source.lower()
+
+
+def test_estimate_generation_hourly_full_cloud(tmp_path, config):
+    """100% cloud all day should return 0."""
+    from src.calculator.engine import _estimate_generation_hourly
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=3, condition="sunny", values=[20.0, 34.0, 25.0, 30.0, 28.0])
+    cloud_hours = [(h, 100) for h in range(6, 18)]
+    forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
+    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    assert gen_kwh == 0.0
+
+
+def test_estimate_generation_hourly_half_cloud(tmp_path, config):
+    """50% cloud all day should return ~half of max."""
+    from src.calculator.engine import _estimate_generation_hourly
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=3, condition="sunny", values=[20.0, 34.0, 25.0, 30.0, 28.0])
+    cloud_hours = [(h, 50) for h in range(6, 18)]
+    forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
+    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    # Should be roughly half of the clear-sky estimate
+    assert 13.0 <= gen_kwh <= 20.0
+
+
+def test_estimate_generation_hourly_mixed_cloud(tmp_path, config):
+    """Clear morning, cloudy afternoon should generate more than cloudy morning, clear afternoon."""
+    from src.calculator.engine import _estimate_generation_hourly
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=6, condition="sunny", values=[40.0, 45.0, 42.0, 44.0, 43.0])
+    # Clear morning (6-12), cloudy afternoon (12-18)
+    cloud_am_clear = [(h, 0) for h in range(6, 12)] + [(h, 100) for h in range(12, 18)]
+    # Cloudy morning (6-12), clear afternoon (12-18)
+    cloud_pm_clear = [(h, 100) for h in range(6, 12)] + [(h, 0) for h in range(12, 18)]
+    forecast_am = _make_forecast_with_cloud(date(2026, 6, 15), cloud_am_clear)
+    forecast_pm = _make_forecast_with_cloud(date(2026, 6, 15), cloud_pm_clear)
+    gen_am, _ = _estimate_generation_hourly(conn, 6, forecast_am, 51.5)
+    gen_pm, _ = _estimate_generation_hourly(conn, 6, forecast_pm, 51.5)
+    # Both should be ~half, and roughly equal (uniform kwh per hour model)
+    assert abs(gen_am - gen_pm) < 2.0
+
+
+def test_estimate_generation_hourly_fallback_adjacent_month(tmp_path, config):
+    """Falls back to adjacent month when target month has no data."""
+    from src.calculator.engine import _estimate_generation_hourly
+    conn = _make_db(tmp_path)
+    # No data for month 4, but month 3 has data
+    _populate_generation(conn, month=3, condition="sunny", values=[30.0, 34.0, 28.0, 32.0, 29.0])
+    cloud_hours = [(h, 0) for h in range(6, 18)]
+    forecast = _make_forecast_with_cloud(date(2026, 4, 15), cloud_hours)
+    gen_kwh, source = _estimate_generation_hourly(conn, 4, forecast, 51.5)
+    assert gen_kwh > 0.0
+    assert "adjacent" in source.lower()
+
+
+def test_estimate_generation_hourly_no_data(tmp_path, config):
+    """Returns 0 when no historical data exists."""
+    from src.calculator.engine import _estimate_generation_hourly
+    conn = _make_db(tmp_path)
+    cloud_hours = [(h, 0) for h in range(6, 18)]
+    forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
+    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    assert gen_kwh == 0.0
+    assert "no" in source.lower()

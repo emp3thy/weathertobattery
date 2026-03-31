@@ -10,6 +10,8 @@ from ..db.queries import (
     get_generation_by_weather_wide,
     get_generation_by_condition,
     get_generation_by_month,
+    get_max_generation_for_month,
+    get_max_generation_for_adjacent_months,
 )
 
 
@@ -96,6 +98,40 @@ def _estimate_generation(
         return p25, f"generation P25 by month only ({len(results)} days): {p25:.3f}kWh"
 
     return 0.0, "no historical data"
+
+
+def _estimate_generation_hourly(
+    conn: sqlite3.Connection, month: int, forecast: DayForecast, latitude: float
+) -> tuple[float, str]:
+    result = get_max_generation_for_month(conn, month)
+    source_label = "max"
+    if result is None:
+        result = get_max_generation_for_adjacent_months(conn, month)
+        source_label = "adjacent month max"
+    if result is None:
+        return 0.0, "no historical generation data"
+
+    max_gen_kwh, max_gen_date_str = result
+    max_gen_date = date.fromisoformat(max_gen_date_str)
+
+    max_day_solar_hours = solar_day_length(latitude, max_gen_date)
+    if max_day_solar_hours <= 0:
+        return 0.0, "no solar hours on max generation day"
+
+    kwh_per_solar_hour = max_gen_kwh / max_day_solar_hours
+
+    estimated = sum(
+        kwh_per_solar_hour * (100 - h.cloud_cover_pct) / 100
+        for h in forecast.hourly
+    )
+
+    forecast_solar_hours = len(forecast.hourly)
+    description = (
+        f"{source_label} {max_gen_kwh:.1f}kWh on {max_gen_date_str}, "
+        f"{max_day_solar_hours:.1f} solar hrs, "
+        f"cloud-adjusted from {forecast_solar_hours} forecast hrs"
+    )
+    return estimated, description
 
 
 def calculate_charge(
