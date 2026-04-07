@@ -176,7 +176,11 @@ def test_charge_clamped_to_zero_with_massive_generation(tmp_path, config):
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
                               current_soc=80, conn=conn)
-    assert result.charge_level == 0
+    # Gap is hugely negative, but morning floor (buffer only, solar covers load
+    # immediately) sets the minimum. Daily gap is not binding.
+    morning_floor_pct = int(round(config.battery.morning_buffer_kwh / config.battery.usable_capacity_kwh * 100))
+    assert result.charge_level == morning_floor_pct
+    assert "(binding)" in result.reason
 
 
 # --------------------------------------------------------------------------- #
@@ -474,3 +478,63 @@ def test_morning_floor_solar_covers_load_immediately(tmp_path, config):
     # Solar covers load at hour 6 immediately, gap_hours = 0
     # Floor = 0 * 1.11 + 2.0 = 2.0 (just the buffer)
     assert result == config.battery.morning_buffer_kwh
+
+
+# --------------------------------------------------------------------------- #
+# Tests for morning floor integration in calculate_charge
+# --------------------------------------------------------------------------- #
+
+def test_sunny_day_uses_morning_floor(tmp_path, config):
+    """Sunny day: daily gap says 0%, but morning floor ensures minimum charge."""
+    from src.calculator.engine import calculate_charge
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=4, condition="sunny",
+                         values=[30.0, 35.0, 32.0, 34.0, 31.0])
+    _populate_expensive_consumption(conn, [18.0, 19.0, 17.0, 18.5, 17.5])
+    # Low radiation until hour 8, then strong
+    hourly_data = [
+        (6, 10, 50),
+        (7, 10, 100),
+        (8, 10, 400),
+        (9, 10, 600),
+        (10, 5, 700),
+        (11, 5, 800),
+        (12, 5, 850),
+        (13, 5, 800),
+        (14, 10, 700),
+        (15, 10, 600),
+        (16, 15, 400),
+        (17, 20, 200),
+        (18, 30, 80),
+        (19, 50, 20),
+    ]
+    forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
+    result = calculate_charge(config=config, forecast=forecast,
+                              current_soc=50, conn=conn)
+    # Daily gap would be negative (generation >> consumption with 50% SOC)
+    # But morning floor should set a minimum > 0
+    assert result.charge_level > 0
+    assert "morning floor" in result.reason.lower()
+
+
+def test_cloudy_day_daily_gap_wins(tmp_path, config):
+    """Cloudy day: daily gap is larger than morning floor, daily gap wins."""
+    from src.calculator.engine import calculate_charge
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=3, condition="cloudy",
+                         values=[2.0, 1.5, 2.5, 1.8, 2.2, 2.0])
+    _populate_expensive_consumption(conn, [20.0, 21.0, 19.5, 20.5, 20.0])
+    # All cloudy, weak radiation
+    hourly_data = [
+        (6, 90, 30), (7, 90, 50), (8, 85, 80), (9, 85, 100),
+        (10, 80, 120), (11, 80, 130), (12, 85, 120), (13, 85, 100),
+        (14, 90, 80), (15, 90, 50),
+    ]
+    forecast = _make_forecast_with_radiation(date(2026, 3, 15), hourly_data)
+    result = calculate_charge(config=config, forecast=forecast,
+                              current_soc=10, conn=conn)
+    # Daily gap should be large (consumption >> generation)
+    assert result.charge_level >= 70
+    # Morning floor should not be the binding constraint
+    assert "morning floor" in result.reason.lower()
+    assert "(binding)" not in result.reason.lower()

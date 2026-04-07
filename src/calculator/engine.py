@@ -175,13 +175,38 @@ def calculate_charge(
 
     gap_kwh = expected_consumption - expected_generation - current_soc_kwh
     charge_pct = (gap_kwh / usable_capacity_kwh) * 100
-    charge_level = int(max(0, min(100, round(charge_pct))))
+
+    # Morning floor: ensure enough charge to bridge cheap-rate end to solar
+    result = get_max_generation_for_month(conn, month)
+    if result is None:
+        result = get_max_generation_for_adjacent_months(conn, month)
+    if result is not None:
+        max_gen_kwh, max_gen_date_str = result
+        max_gen_date = date.fromisoformat(max_gen_date_str)
+        max_day_solar_hours = solar_day_length(config.location.latitude, max_gen_date)
+        if max_day_solar_hours > 0:
+            kwh_per_solar_hour = max_gen_kwh / max_day_solar_hours
+        else:
+            kwh_per_solar_hour = 0.0
+    else:
+        kwh_per_solar_hour = 0.0
+
+    morning_kwh = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
+    morning_pct = (morning_kwh / usable_capacity_kwh) * 100
+
+    if morning_pct > charge_pct:
+        charge_level = int(max(0, min(100, round(morning_pct))))
+        morning_floor_note = f"Morning floor: {morning_kwh:.3f}kWh (binding)"
+    else:
+        charge_level = int(max(0, min(100, round(charge_pct))))
+        morning_floor_note = f"Morning floor: {morning_kwh:.3f}kWh"
 
     reason_parts = [
         f"Consumption: {expected_consumption:.3f}kWh ({consumption_source})",
         f"Generation: {expected_generation:.3f}kWh ({generation_source})",
         f"Current SOC: {current_soc}% ({current_soc_kwh:.3f}kWh)",
         f"Gap: {gap_kwh:.3f}kWh",
+        morning_floor_note,
         f"Charge level: {charge_level}%",
     ]
     if "total consumption fallback" in consumption_source:
