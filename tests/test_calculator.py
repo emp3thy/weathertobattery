@@ -352,3 +352,125 @@ def test_estimate_generation_hourly_no_data(tmp_path, config):
     gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
     assert gen_kwh == 0.0
     assert "no" in source.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Tests for _morning_floor_kwh
+# --------------------------------------------------------------------------- #
+
+def _make_forecast_with_radiation(target_date, hourly_data):
+    """Create a forecast with specific per-hour cloud cover and radiation.
+
+    hourly_data: list of (hour, cloud_pct, radiation_wm2) tuples.
+    """
+    hourly = [
+        HourlyForecast(hour=h, cloud_cover_pct=cloud, solar_radiation_wm2=rad,
+                       precipitation_probability_pct=0, temperature_c=15.0)
+        for h, cloud, rad in hourly_data
+    ]
+    return DayForecast(
+        date=target_date, sunrise=time(6, 0), sunset=time(20, 0),
+        hourly=hourly, condition="sunny", max_temperature_c=15.0
+    )
+
+
+def test_morning_floor_sunny_day(tmp_path, config):
+    """Sunny day: solar covers load by ~8am, morning floor covers 06:00-08:00 + buffer."""
+    from src.calculator.engine import _morning_floor_kwh
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=4, condition="sunny",
+                         values=[30.0, 35.0, 32.0, 34.0, 31.0])
+    hourly_data = [
+        (6, 65, 50),    # 6am: heavy cloud, weak solar
+        (7, 65, 100),   # 7am: still heavy cloud
+        (8, 10, 400),   # 8am: mostly clear — generation should exceed consumption here
+        (9, 10, 600),
+        (10, 5, 700),
+        (11, 5, 800),
+        (12, 5, 850),
+        (13, 5, 800),
+        (14, 10, 700),
+        (15, 10, 600),
+        (16, 15, 400),
+        (17, 20, 200),
+        (18, 30, 80),
+        (19, 50, 20),
+    ]
+    forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
+    expected_consumption = 20.0
+    from src.calculator.engine import solar_day_length
+    kwh_per_solar_hour = 35.0 / solar_day_length(51.4067, date(2025, 4, 2))
+
+    result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
+    # Gap hours: 06, 07 = 2 hours. Hourly consumption: 20/18 = 1.11 kWh.
+    # Floor = 2 * 1.11 + 2.0 buffer = ~4.2 kWh
+    assert 3.0 <= result <= 6.0
+
+
+def test_morning_floor_cloudy_day(tmp_path, config):
+    """Cloudy day: solar never covers load, morning floor spans all forecast hours."""
+    from src.calculator.engine import _morning_floor_kwh
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=4, condition="cloudy",
+                         values=[5.0, 6.0, 4.0, 5.5, 4.5])
+    hourly_data = [
+        (6, 90, 30),
+        (7, 90, 50),
+        (8, 85, 80),
+        (9, 85, 100),
+        (10, 80, 120),
+        (11, 80, 130),
+        (12, 85, 120),
+        (13, 85, 100),
+        (14, 90, 80),
+        (15, 90, 50),
+        (16, 95, 30),
+        (17, 95, 10),
+    ]
+    forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
+    expected_consumption = 20.0
+    from src.calculator.engine import solar_day_length
+    kwh_per_solar_hour = 6.0 / solar_day_length(51.4067, date(2025, 4, 3))
+
+    result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
+    # Generation per hour is tiny (kwh_per_solar_hour ~0.44 * 10-20% clear = ~0.04-0.09)
+    # which is well below hourly consumption of 1.11 kWh
+    # All 12 forecast hours from hour 6 onward are gap hours
+    # Floor = 12 * 1.11 + 2.0 = ~15.3 kWh
+    assert result > 10.0
+
+
+def test_morning_floor_no_forecast_data(tmp_path, config):
+    """No hourly forecast data returns 0."""
+    from src.calculator.engine import _morning_floor_kwh
+    forecast = DayForecast(
+        date=date(2026, 4, 15), sunrise=time(6, 0), sunset=time(20, 0),
+        hourly=[], condition="sunny", max_temperature_c=15.0
+    )
+    result = _morning_floor_kwh(config, forecast, 20.0, 2.5)
+    assert result == 0.0
+
+
+def test_morning_floor_solar_covers_load_immediately(tmp_path, config):
+    """Solar covers load at first expensive hour — floor is just the buffer."""
+    from src.calculator.engine import _morning_floor_kwh
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=6, condition="sunny",
+                         values=[40.0, 42.0, 38.0, 41.0, 39.0])
+    hourly_data = [
+        (6, 5, 600),
+        (7, 5, 700),
+        (8, 5, 800),
+        (9, 5, 850),
+        (10, 5, 900),
+    ]
+    forecast = _make_forecast_with_radiation(date(2026, 6, 15), hourly_data)
+    expected_consumption = 20.0
+    from src.calculator.engine import solar_day_length
+    kwh_per_solar_hour = 42.0 / solar_day_length(51.4067, date(2025, 6, 1))
+
+    result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
+    # kwh_per_solar_hour ~2.6, at 95% clear = ~2.47, vs hourly consumption 1.11
+    # Solar covers load at hour 6 immediately, gap_hours = 0
+    # Floor = 0 * 1.11 + 2.0 = 2.0 (just the buffer)
+    assert result == config.battery.morning_buffer_kwh

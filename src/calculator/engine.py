@@ -98,6 +98,58 @@ def _estimate_generation_hourly(
     return estimated, description
 
 
+def _morning_floor_kwh(
+    config: Config,
+    forecast: DayForecast,
+    expected_consumption: float,
+    kwh_per_solar_hour: float,
+) -> float:
+    """Calculate minimum kWh needed to bridge cheap-rate end to solar-covers-load.
+
+    Returns the kWh the battery needs to cover morning consumption from
+    cheap_end until hourly solar generation exceeds hourly consumption,
+    plus the configured morning buffer.
+    """
+    if not forecast.hourly or kwh_per_solar_hour <= 0:
+        return 0.0
+
+    # Parse cheap_end hour (round up partial hours: 05:30 -> hour 6)
+    end_h, end_m = (int(x) for x in config.rates.cheap_end.split(":"))
+    first_expensive_hour = end_h + (1 if end_m > 0 else 0)
+
+    # Expensive hours in the day (for hourly consumption estimate)
+    start_h, start_m = (int(x) for x in config.rates.cheap_start.split(":"))
+    cheap_start_t = start_h * 60 + start_m
+    cheap_end_t = end_h * 60 + end_m
+    if cheap_start_t > cheap_end_t:
+        cheap_duration_mins = (24 * 60 - cheap_start_t) + cheap_end_t
+    else:
+        cheap_duration_mins = cheap_end_t - cheap_start_t
+    expensive_hours = (24 * 60 - cheap_duration_mins) / 60
+
+    if expensive_hours <= 0:
+        return 0.0
+
+    hourly_consumption = expected_consumption / expensive_hours
+
+    # Find first forecast hour >= first_expensive_hour where generation covers load
+    gap_hours = 0
+    solar_covers_load_found = False
+    for h_forecast in sorted(forecast.hourly, key=lambda h: h.hour):
+        if h_forecast.hour < first_expensive_hour:
+            continue
+        hour_gen = kwh_per_solar_hour * (100 - h_forecast.cloud_cover_pct) / 100
+        if hour_gen >= hourly_consumption:
+            solar_covers_load_found = True
+            break
+        gap_hours += 1
+
+    if not solar_covers_load_found and gap_hours == 0:
+        return 0.0
+
+    return hourly_consumption * gap_hours + config.battery.morning_buffer_kwh
+
+
 def calculate_charge(
     config: Config,
     forecast: DayForecast,
