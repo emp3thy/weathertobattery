@@ -1,4 +1,5 @@
 config.yaml
+.env
 data/
 __pycache__/
 *.pyc
@@ -6,3 +7,4 @@ __pycache__/
 last_updated.md
 *.egg-info/
 .venv/
+.worktrees/
