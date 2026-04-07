@@ -27,6 +27,8 @@ class GrowattConfig:
 class BatteryConfig:
     total_capacity_kwh: float
     usable_fraction: float
+    fallback_charge_level: int = 90
+    morning_buffer_kwh: float = 2.0
 
     @property
     def usable_capacity_kwh(self) -> float:
