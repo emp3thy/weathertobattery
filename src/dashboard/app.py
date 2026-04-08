@@ -110,17 +110,66 @@ def create_app(db_path: Path) -> FastAPI:
 
     @app.get("/savings", response_class=HTMLResponse)
     def savings(request: Request):
+        from .savings import compute_daily_savings
+        from datetime import datetime
+
         conn = get_conn()
         rows = conn.execute(
-            "SELECT d.date, d.charge_level_set, "
-            "a.total_solar_generation_kwh, a.total_consumption_kwh, "
-            "a.grid_import_kwh, a.grid_export_kwh "
+            "SELECT d.date, d.charge_level_set, d.current_soc_at_decision, "
+            "a.total_consumption_kwh, a.grid_import_kwh, a.grid_export_kwh, "
+            "a.expensive_battery_discharge_kwh "
             "FROM decisions d JOIN actuals a ON d.date = a.date "
             "ORDER BY d.date DESC"
         ).fetchall()
         conn.close()
+
+        cheap_rate = config.rates.cheap_pence_per_kwh
+        expensive_rate = config.rates.expensive_pence_per_kwh
+        usable = config.battery.usable_capacity_kwh
+
+        daily = []
+        for r in rows:
+            row_dict = {
+                "charge_level_set": r["charge_level_set"],
+                "current_soc_at_decision": r["current_soc_at_decision"],
+                "total_consumption_kwh": r["total_consumption_kwh"],
+                "grid_import_kwh": r["grid_import_kwh"],
+                "grid_export_kwh": r["grid_export_kwh"],
+                "expensive_battery_discharge_kwh": r["expensive_battery_discharge_kwh"],
+            }
+            metrics = compute_daily_savings(row_dict, usable, cheap_rate, expensive_rate)
+            metrics["date"] = r["date"]
+            daily.append(metrics)
+
+        # Aggregate into periods
+        now_month = datetime.now().strftime("%Y-%m")
+
+        def aggregate(items):
+            return {
+                "no_solar_saving": sum(d["no_solar_saving_pence"] for d in items) / 100,
+                "battery_value": sum(d["battery_value_pence"] for d in items) / 100,
+                "actual_cost": sum(d["actual_cost_pence"] for d in items) / 100,
+                "days": len(items),
+            }
+
+        latest = aggregate(daily[:1]) if daily else None
+        monthly = aggregate([d for d in daily if d["date"].startswith(now_month)])
+        all_time = aggregate(daily)
+
+        # Chart data: last 90 days in chronological order
+        chart_days = list(reversed(daily[:90]))
+        chart_labels = [d["date"] for d in chart_days]
+        chart_values = [round(d["battery_value_pence"], 1) for d in chart_days]
+
         return templates.TemplateResponse("savings.html", {
-            "request": request, "rows": rows
+            "request": request,
+            "latest": latest,
+            "monthly": monthly,
+            "all_time": all_time,
+            "chart_labels": chart_labels,
+            "chart_values": chart_values,
+            "cheap_rate": cheap_rate,
+            "expensive_rate": expensive_rate,
         })
 
     @app.get("/solar-profile", response_class=HTMLResponse)
