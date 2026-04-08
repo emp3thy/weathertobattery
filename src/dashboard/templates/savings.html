@@ -2,35 +2,59 @@
 {% block title %}Battery Dashboard - Cost Savings{% endblock %}
 {% block content %}
 <h1>Cost Savings</h1>
-{% set ns = namespace(total_saved=0, total_grid_cost=0, total_wasted=0) %}
-{% for row in rows %}
-    {% set charge_avoided = (100 - row["charge_level_set"]) / 100 * 11.97 %}
-    {% set ns.total_saved = ns.total_saved + charge_avoided * 7 %}
-    {% set ns.total_grid_cost = ns.total_grid_cost + (row["grid_import_kwh"] or 0) * 30 %}
-    {% set ns.total_wasted = ns.total_wasted + (row["grid_export_kwh"] or 0) * 7 %}
-{% endfor %}
-<div class="card">
-    <h2>Totals</h2>
-    <p><strong>Charging saved:</strong> {{ "%.3f"|format(ns.total_saved) }}p (charge avoided at 7p/kWh)</p>
-    <p><strong>Grid import cost:</strong> {{ "%.3f"|format(ns.total_grid_cost) }}p (at 30p/kWh)</p>
-    <p><strong>Wasted export:</strong> {{ "%.3f"|format(ns.total_wasted) }}p (paid 7p to store, exported free)</p>
-    <p><strong>Net benefit:</strong> {{ "%.3f"|format(ns.total_saved - ns.total_wasted) }}p</p>
-</div>
-<table>
-    <thead>
-        <tr><th>Date</th><th>Charge Set</th><th>Solar</th><th>Consumption</th><th>Grid Import</th><th>Grid Export</th></tr>
-    </thead>
-    <tbody>
-    {% for row in rows %}
-        <tr>
-            <td>{{ row["date"] }}</td>
-            <td>{{ row["charge_level_set"] }}%</td>
-            <td>{{ row["total_solar_generation_kwh"]|f3 }} kWh</td>
-            <td>{{ row["total_consumption_kwh"]|f3 }} kWh</td>
-            <td>{{ row["grid_import_kwh"]|f3 }} kWh</td>
-            <td>{{ row["grid_export_kwh"]|f3 }} kWh</td>
-        </tr>
+<p style="font-size: 13px; color: #666;">Rates: cheap {{ cheap_rate }}p/kWh, expensive {{ expensive_rate }}p/kWh</p>
+
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    {% for period, label in [(latest, "Latest Day"), (monthly, "This Month"), (all_time, "All Time")] %}
+    <div class="card">
+        <h3 style="margin-top: 0; font-size: 14px; color: #666;">{{ label }}{% if period %} ({{ period.days }} day{{ "s" if period.days != 1 }}){% endif %}</h3>
+        {% if period %}
+        <p><strong>No-solar saving:</strong> &pound;{{ "%.2f"|format(period.no_solar_saving) }}</p>
+        <p><strong>Battery value:</strong> &pound;{{ "%.2f"|format(period.battery_value) }}</p>
+        <p><strong>Actual grid cost:</strong> &pound;{{ "%.2f"|format(period.actual_cost) }}</p>
+        {% else %}
+        <p>No data</p>
+        {% endif %}
+    </div>
     {% endfor %}
-    </tbody>
-</table>
+</div>
+
+<div class="card">
+    <h2 style="margin-top: 0;">Daily Battery Value (last 90 days)</h2>
+    <canvas id="batteryChart"></canvas>
+</div>
+
+<script>
+    const ctx = document.getElementById('batteryChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {{ chart_labels | tojson }},
+            datasets: [{
+                label: 'Battery value (pence)',
+                data: {{ chart_values | tojson }},
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    title: { display: true, text: 'Pence' },
+                    beginAtZero: true,
+                },
+                x: {
+                    ticks: { maxTicksToShow: 15 }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+</script>
 {% endblock %}
