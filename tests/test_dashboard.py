@@ -12,8 +12,9 @@ def dashboard_client(tmp_path):
     conn = init_db(db_path)
     upsert_decision(conn, date(2026, 3, 25), "sunny", "[]", 60, 55, 5,
                     "test", 10, 3, "open_meteo")
-    insert_actuals(conn, date(2026, 3, 24), 20.0, 25.0, 5.0, 2.0,
-                   "10:00", 15, 95)
+    insert_actuals(conn, date(2026, 3, 25), 20.0, 25.0, 5.0, 2.0,
+                   "10:00", 15, 95,
+                   expensive_battery_discharge_kwh=8.0)
     conn.close()
 
     from src.dashboard.app import create_app
@@ -35,3 +36,5 @@ def test_history_page(dashboard_client):
 def test_savings_page(dashboard_client):
     resp = dashboard_client.get("/savings")
     assert resp.status_code == 200
+    assert "Battery value" in resp.text
+    assert "No-solar saving" in resp.text
