@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def dashboard_client(tmp_path):
+def dashboard_client(tmp_path, config):
     from src.db.schema import init_db
     from src.db.queries import upsert_decision, insert_actuals
     from datetime import date
@@ -18,7 +18,7 @@ def dashboard_client(tmp_path):
     conn.close()
 
     from src.dashboard.app import create_app
-    app = create_app(db_path)
+    app = create_app(db_path, config)
     return TestClient(app)
 
 

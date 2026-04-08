@@ -11,7 +11,7 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app(db_path: Path, config=None) -> FastAPI:
+def create_app(db_path: Path, config) -> FastAPI:
     app = FastAPI(title="Battery Charge Dashboard")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -123,15 +123,9 @@ def create_app(db_path: Path, config=None) -> FastAPI:
         ).fetchall()
         conn.close()
 
-        # Use provided config or test defaults
-        if config:
-            cheap_rate = config.rates.cheap_pence_per_kwh
-            expensive_rate = config.rates.expensive_pence_per_kwh
-            usable = config.battery.usable_capacity_kwh
-        else:
-            cheap_rate = 7
-            expensive_rate = 30
-            usable = 13.3 * 0.90
+        cheap_rate = config.rates.cheap_pence_per_kwh
+        expensive_rate = config.rates.expensive_pence_per_kwh
+        usable = config.battery.usable_capacity_kwh
 
         daily = []
         for r in rows:
