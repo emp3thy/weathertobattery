@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import yaml
+from dotenv import load_dotenv
 
 
 class ConfigValidationError(Exception):
@@ -49,6 +51,19 @@ class RatesConfig:
     cheap_start: str
     cheap_end: str
 
+    def is_expensive(self, hour: int, minute: int) -> bool:
+        """Return True if the given time falls outside the cheap window."""
+        end_h, end_m = (int(x) for x in self.cheap_end.split(":"))
+        start_h, start_m = (int(x) for x in self.cheap_start.split(":"))
+        t = hour * 60 + minute
+        cheap_end_t = end_h * 60 + end_m
+        cheap_start_t = start_h * 60 + start_m
+        # Cheap window wraps midnight (e.g. 23:30 -> 05:30)
+        if cheap_start_t > cheap_end_t:
+            return t >= cheap_end_t and t < cheap_start_t
+        else:
+            return t < cheap_start_t or t >= cheap_end_t
+
 
 @dataclass
 class DashboardConfig:
@@ -78,6 +93,8 @@ def _validate(cfg: Config) -> None:
 
 
 def load_config(path: Path) -> Config:
+    load_dotenv(path.parent / ".env")
+
     with open(path) as f:
         raw = yaml.safe_load(f)
 
@@ -85,9 +102,20 @@ def load_config(path: Path) -> Config:
     # charge_floor_pct may still be in old configs — ignore it
     battery_raw.pop("charge_floor_pct", None)
 
+    growatt_raw = raw["growatt"]
+    growatt_raw["username"] = os.environ.get("GROWATT_USERNAME", growatt_raw["username"])
+    growatt_raw["password"] = os.environ.get("GROWATT_PASSWORD", growatt_raw["password"])
+    growatt_raw["plant_id"] = os.environ.get("GROWATT_PLANT_ID", growatt_raw["plant_id"])
+    growatt_raw["device_sn"] = os.environ.get("GROWATT_DEVICE_SN", growatt_raw["device_sn"])
+
+    location_raw = raw["location"]
+    location_raw["latitude"] = float(os.environ.get("LOCATION_LATITUDE") or location_raw["latitude"])
+    location_raw["longitude"] = float(os.environ.get("LOCATION_LONGITUDE") or location_raw["longitude"])
+    location_raw["timezone"] = os.environ.get("LOCATION_TIMEZONE", location_raw["timezone"])
+
     cfg = Config(
-        location=LocationConfig(**raw["location"]),
-        growatt=GrowattConfig(**raw["growatt"]),
+        location=LocationConfig(**location_raw),
+        growatt=GrowattConfig(**growatt_raw),
         battery=BatteryConfig(**battery_raw),
         weather=WeatherConfig(**raw["weather"]),
         rates=RatesConfig(**raw["rates"]),
