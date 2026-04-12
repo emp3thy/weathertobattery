@@ -171,7 +171,9 @@ def calculate_charge(
     )
 
     usable_capacity_kwh = config.battery.usable_capacity_kwh
-    current_soc_kwh = (current_soc / 100) * usable_capacity_kwh
+    min_soc = config.battery.min_soc_pct
+    effective_soc = max(0, current_soc - min_soc)
+    current_soc_kwh = (effective_soc / 100) * usable_capacity_kwh
 
     gap_kwh = expected_consumption - expected_generation - current_soc_kwh
     charge_pct = (gap_kwh / usable_capacity_kwh) * 100
@@ -195,16 +197,16 @@ def calculate_charge(
     morning_pct = (morning_kwh / usable_capacity_kwh) * 100
 
     if morning_pct > charge_pct:
-        charge_level = int(max(0, min(100, round(morning_pct))))
+        charge_level = int(max(0, min(100, round(morning_pct + min_soc))))
         morning_floor_note = f"Morning floor: {morning_kwh:.3f}kWh (binding)"
     else:
-        charge_level = int(max(0, min(100, round(charge_pct))))
+        charge_level = int(max(0, min(100, round(charge_pct + min_soc))))
         morning_floor_note = f"Morning floor: {morning_kwh:.3f}kWh"
 
     reason_parts = [
         f"Consumption: {expected_consumption:.3f}kWh ({consumption_source})",
         f"Generation: {expected_generation:.3f}kWh ({generation_source})",
-        f"Current SOC: {current_soc}% ({current_soc_kwh:.3f}kWh)",
+        f"Current SOC: {current_soc}% (effective {effective_soc}%, {current_soc_kwh:.3f}kWh usable)",
         f"Gap: {gap_kwh:.3f}kWh",
         morning_floor_note,
         f"Charge level: {charge_level}%",

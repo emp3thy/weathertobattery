@@ -78,7 +78,8 @@ def test_sunny_day_good_generation_charges_low(tmp_path, config):
     result = calculate_charge(config=config, forecast=forecast,
                               current_soc=50, conn=conn)
     # Generation >> consumption, battery already 50%, expect very low or 0
-    assert result.charge_level <= 20
+    # (+10 from min_soc_pct offset)
+    assert result.charge_level <= 30
 
 
 # --------------------------------------------------------------------------- #
@@ -178,7 +179,7 @@ def test_charge_clamped_to_zero_with_massive_generation(tmp_path, config):
                               current_soc=80, conn=conn)
     # Gap is hugely negative, but morning floor (buffer only, solar covers load
     # immediately) sets the minimum. Daily gap is not binding.
-    morning_floor_pct = int(round(config.battery.morning_buffer_kwh / config.battery.usable_capacity_kwh * 100))
+    morning_floor_pct = int(round(config.battery.morning_buffer_kwh / config.battery.usable_capacity_kwh * 100)) + config.battery.min_soc_pct
     assert result.charge_level == morning_floor_pct
     assert "(binding)" in result.reason
 
@@ -515,6 +516,43 @@ def test_sunny_day_uses_morning_floor(tmp_path, config):
     # But morning floor should set a minimum > 0
     assert result.charge_level > 0
     assert "morning floor" in result.reason.lower()
+
+
+def test_min_soc_offset_applied(tmp_path):
+    """Charge level is offset by min_soc_pct: input SOC adjusted down, output adjusted up."""
+    from src.calculator.engine import calculate_charge
+    from src.config import load_config
+    from tests.conftest import VALID_CONFIG_YAML
+
+    # Use min_soc_pct=10 (the default from conftest)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(VALID_CONFIG_YAML)
+    config = load_config(config_file)
+    assert config.battery.min_soc_pct == 10
+
+    conn = _make_db(tmp_path)
+    _populate_generation(conn, month=6, condition="sunny",
+                         values=[25.0, 26.0, 24.0, 27.0, 25.5, 24.5])
+    _populate_expensive_consumption(conn, [12.0, 13.0, 11.5, 12.5, 12.0])
+    forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
+
+    # Create a config with min_soc_pct=0 for comparison
+    config_file_zero = tmp_path / "config_zero.yaml"
+    config_file_zero.write_text(VALID_CONFIG_YAML.replace(
+        "morning_buffer_kwh: 2.0",
+        "morning_buffer_kwh: 2.0\n  min_soc_pct: 0"
+    ))
+    config_zero = load_config(config_file_zero)
+
+    result_with_offset = calculate_charge(config=config, forecast=forecast,
+                                          current_soc=50, conn=conn)
+    result_without_offset = calculate_charge(config=config_zero, forecast=forecast,
+                                             current_soc=50, conn=conn)
+
+    # With min_soc=10: effective SOC = 50-10 = 40%, output += 10
+    # With min_soc=0:  effective SOC = 50-0  = 50%, output += 0
+    # Net effect: with offset should be higher (less available SOC AND higher target)
+    assert result_with_offset.charge_level > result_without_offset.charge_level
 
 
 def test_cloudy_day_daily_gap_wins(tmp_path, config):
