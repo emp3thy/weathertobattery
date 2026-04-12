@@ -172,10 +172,8 @@ def calculate_charge(
 
     usable_capacity_kwh = config.battery.usable_capacity_kwh
     min_soc = config.battery.min_soc_pct
-    effective_soc = max(0, current_soc - min_soc)
-    current_soc_kwh = (effective_soc / 100) * usable_capacity_kwh
 
-    gap_kwh = expected_consumption - expected_generation - current_soc_kwh
+    gap_kwh = expected_consumption - expected_generation
     charge_pct = (gap_kwh / usable_capacity_kwh) * 100
 
     # Morning floor: ensure enough charge to bridge cheap-rate end to solar
@@ -206,7 +204,7 @@ def calculate_charge(
     reason_parts = [
         f"Consumption: {expected_consumption:.3f}kWh ({consumption_source})",
         f"Generation: {expected_generation:.3f}kWh ({generation_source})",
-        f"Current SOC: {current_soc}% (effective {effective_soc}%, {current_soc_kwh:.3f}kWh usable)",
+        f"Current SOC: {current_soc}%",
         f"Gap: {gap_kwh:.3f}kWh",
         morning_floor_note,
         f"Charge level: {charge_level}%",
