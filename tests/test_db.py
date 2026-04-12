@@ -49,7 +49,7 @@ def test_insert_adjustment(tmp_path):
     conn = init_db(tmp_path / "test.db")
     insert_adjustment(conn, date(2026, 3, 25), "up", 10, "grid_draw",
                       "cloudy", "cloudy", 3.5, 0.0)
-    rows = get_recent_adjustments(conn, days=7)
+    rows = get_recent_adjustments(conn, days=7, reference_date=date(2026, 3, 25))
     assert len(rows) == 1
     assert rows[0]["direction"] == "up"
     conn.close()
