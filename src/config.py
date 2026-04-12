@@ -29,6 +29,7 @@ class BatteryConfig:
     usable_fraction: float
     fallback_charge_level: int = 90
     morning_buffer_kwh: float = 2.0
+    min_soc_pct: int = 10
 
     @property
     def usable_capacity_kwh(self) -> float:
@@ -72,6 +73,8 @@ def _validate(cfg: Config) -> None:
         raise ConfigValidationError("usable_fraction must be between 0 and 1")
     if cfg.manual_override is not None and not (0 <= cfg.manual_override <= 100):
         raise ConfigValidationError("manual_override must be 0-100 or null")
+    if not (0 <= cfg.battery.min_soc_pct < 100):
+        raise ConfigValidationError("min_soc_pct must be between 0 and 99")
 
 
 def load_config(path: Path) -> Config:
