@@ -296,14 +296,17 @@ def test_estimate_generation_hourly_clear_sky(tmp_path, config):
 
 
 def test_estimate_generation_hourly_full_cloud(tmp_path, config):
-    """100% cloud all day should return 0."""
+    """100% cloud all day should return ~25% of clear-sky (diffuse radiation floor)."""
     from src.calculator.engine import _estimate_generation_hourly
     conn = _make_db(tmp_path)
     _populate_generation(conn, month=3, condition="sunny", values=[20.0, 34.0, 25.0, 30.0, 28.0])
     cloud_hours = [(h, 100) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
     gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
-    assert gen_kwh == 0.0
+    clear_sky, _ = _estimate_generation_hourly(conn, 3,
+        _make_forecast_with_cloud(date(2026, 3, 15), [(h, 0) for h in range(6, 18)]),
+        51.5)
+    assert 0.2 * clear_sky <= gen_kwh <= 0.3 * clear_sky
 
 
 def test_estimate_generation_hourly_half_cloud(tmp_path, config):
@@ -314,8 +317,8 @@ def test_estimate_generation_hourly_half_cloud(tmp_path, config):
     cloud_hours = [(h, 50) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
     gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
-    # Should be roughly half of the clear-sky estimate
-    assert 13.0 <= gen_kwh <= 20.0
+    # With 25% floor, 50% cloud gives: 0.25 + 0.75*0.5 = 0.625 of clear-sky
+    assert 18.0 <= gen_kwh <= 28.0
 
 
 def test_estimate_generation_hourly_mixed_cloud(tmp_path, config):
@@ -407,9 +410,9 @@ def test_morning_floor_sunny_day(tmp_path, config):
     kwh_per_solar_hour = 35.0 / solar_day_length(51.4067, date(2025, 4, 2))
 
     result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
-    # Gap hours: 06, 07 = 2 hours. Hourly consumption: 20/18 = 1.11 kWh.
-    # Floor = 2 * 1.11 + 2.0 buffer = ~4.2 kWh
-    assert 3.0 <= result <= 6.0
+    # With diffuse radiation floor, solar covers load from hour 7 onwards.
+    # Gap is 1 hour (06) or 0 hours + 2.0 buffer
+    assert 2.0 <= result <= 4.0
 
 
 def test_morning_floor_cloudy_day(tmp_path, config):

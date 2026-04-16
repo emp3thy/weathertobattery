@@ -64,8 +64,18 @@ def _estimate_consumption(conn: sqlite3.Connection) -> tuple[float, str]:
     return 0.0, "no consumption data"
 
 
+def _cloud_factor(cloud_cover_pct: float, floor: float) -> float:
+    """Return fraction of clear-sky output expected at a given cloud cover.
+
+    Uses a diffuse-radiation floor so that even 100% cloud cover still
+    produces *floor* fraction of clear-sky output.
+    """
+    return floor + (1 - floor) * (100 - cloud_cover_pct) / 100
+
+
 def _estimate_generation_hourly(
-    conn: sqlite3.Connection, month: int, forecast: DayForecast, latitude: float
+    conn: sqlite3.Connection, month: int, forecast: DayForecast, latitude: float,
+    cloud_floor: float = 0.25,
 ) -> tuple[float, str]:
     result = get_max_generation_for_month(conn, month)
     source_label = "max"
@@ -85,7 +95,7 @@ def _estimate_generation_hourly(
     kwh_per_solar_hour = max_gen_kwh / max_day_solar_hours
 
     estimated = sum(
-        kwh_per_solar_hour * (100 - h.cloud_cover_pct) / 100
+        kwh_per_solar_hour * _cloud_factor(h.cloud_cover_pct, cloud_floor)
         for h in forecast.hourly
     )
 
@@ -103,6 +113,7 @@ def _morning_floor_kwh(
     forecast: DayForecast,
     expected_consumption: float,
     kwh_per_solar_hour: float,
+    cloud_floor: float = 0.25,
 ) -> float:
     """Calculate minimum kWh needed to bridge cheap-rate end to solar-covers-load.
 
@@ -138,7 +149,7 @@ def _morning_floor_kwh(
     for h_forecast in sorted(forecast.hourly, key=lambda h: h.hour):
         if h_forecast.hour < first_expensive_hour:
             continue
-        hour_gen = kwh_per_solar_hour * (100 - h_forecast.cloud_cover_pct) / 100
+        hour_gen = kwh_per_solar_hour * _cloud_factor(h_forecast.cloud_cover_pct, cloud_floor)
         if hour_gen >= hourly_consumption:
             solar_covers_load_found = True
             break
@@ -165,9 +176,11 @@ def calculate_charge(
 
     month = forecast.date.month
 
+    cloud_floor = config.battery.cloud_floor_pct / 100
+
     expected_consumption, consumption_source = _estimate_consumption(conn)
     expected_generation, generation_source = _estimate_generation_hourly(
-        conn, month, forecast, config.location.latitude
+        conn, month, forecast, config.location.latitude, cloud_floor
     )
 
     usable_capacity_kwh = config.battery.usable_capacity_kwh
@@ -191,7 +204,7 @@ def calculate_charge(
     else:
         kwh_per_solar_hour = 0.0
 
-    morning_kwh = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
+    morning_kwh = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour, cloud_floor)
     morning_pct = (morning_kwh / usable_capacity_kwh) * 100
 
     if morning_pct > charge_pct:
