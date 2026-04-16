@@ -1,0 +1,10 @@
+config.yaml
+.env
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+last_updated.md
+*.egg-info/
+.venv/
+.worktrees/

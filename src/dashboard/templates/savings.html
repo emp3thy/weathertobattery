@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Battery Dashboard - Cost Savings{% endblock %}
+{% block content %}
+<h1>Cost Savings</h1>
+<p style="font-size: 13px; color: #666;">Rates: cheap {{ cheap_rate }}p/kWh, expensive {{ expensive_rate }}p/kWh</p>
+
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    {% for period, label in [(latest, "Latest Day"), (monthly, "This Month"), (all_time, "All Time")] %}
+    <div class="card">
+        <h3 style="margin-top: 0; font-size: 14px; color: #666;">{{ label }}{% if period %} ({{ period.days }} day{{ "s" if period.days != 1 }}){% endif %}</h3>
+        {% if period %}
+        <p><strong>No-solar saving:</strong> &pound;{{ "%.2f"|format(period.no_solar_saving) }}</p>
+        <p><strong>Battery value:</strong> &pound;{{ "%.2f"|format(period.battery_value) }}</p>
+        <p><strong>Actual grid cost:</strong> &pound;{{ "%.2f"|format(period.actual_cost) }}</p>
+        {% else %}
+        <p>No data</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2 style="margin-top: 0;">Daily Battery Value (last 90 days)</h2>
+    <canvas id="batteryChart"></canvas>
+</div>
+
+<script>
+    const ctx = document.getElementById('batteryChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {{ chart_labels | tojson }},
+            datasets: [{
+                label: 'Battery value (pence)',
+                data: {{ chart_values | tojson }},
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    title: { display: true, text: 'Pence' },
+                    beginAtZero: true,
+                },
+                x: {
+                    ticks: { maxTicksToShow: 15 }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+</script>
+{% endblock %}

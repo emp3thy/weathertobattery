@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}Battery Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="/">Overview</a>
+        <a href="/history">History</a>
+        <a href="/accuracy">Forecast Accuracy</a>
+        <a href="/savings">Cost Savings</a>
+        <a href="/solar-profile">Solar Profile</a>
+        <a href="/generation-stats">Generation Stats</a>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

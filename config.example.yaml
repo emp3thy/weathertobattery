@@ -1,0 +1,27 @@
+location:
+  latitude: 51.4067
+  longitude: 0.0481
+  timezone: "Europe/London"
+growatt:
+  username: "your_username"
+  password: "your_password"
+  plant_id: "your_plant_id"
+  device_sn: "your_device_sn"
+  server_url: "https://server.growatt.com/"
+battery:
+  total_capacity_kwh: 13.3
+  usable_fraction: 0.90
+  fallback_charge_level: 90
+  morning_buffer_kwh: 2.0
+  min_soc_pct: 10
+weather:
+  provider: "open_meteo"
+rates:
+  cheap_pence_per_kwh: 7
+  expensive_pence_per_kwh: 30
+  export_pence_per_kwh: 0
+  cheap_start: "23:30"
+  cheap_end: "05:30"
+dashboard:
+  port: 8099
+manual_override: null
