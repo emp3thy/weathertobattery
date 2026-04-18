@@ -12,8 +12,8 @@ def test_init_db_creates_tables(tmp_path):
     )
     tables = [row[0] for row in cursor.fetchall()]
     assert "actuals" in tables
-    assert "adjustments" in tables
     assert "decisions" in tables
+    assert "adjustments" not in tables
     conn.close()
 
 
@@ -42,17 +42,6 @@ def test_insert_and_get_actuals(tmp_path):
     assert row["grid_import_kwh"] == 5.0
     conn.close()
 
-
-def test_insert_adjustment(tmp_path):
-    from src.db.schema import init_db
-    from src.db.queries import insert_adjustment, get_recent_adjustments
-    conn = init_db(tmp_path / "test.db")
-    insert_adjustment(conn, date(2026, 3, 25), "up", 10, "grid_draw",
-                      "cloudy", "cloudy", 3.5, 0.0)
-    rows = get_recent_adjustments(conn, days=7, reference_date=date(2026, 3, 25))
-    assert len(rows) == 1
-    assert rows[0]["direction"] == "up"
-    conn.close()
 
 
 def test_get_historical_daily_data(tmp_path):
