@@ -201,8 +201,7 @@ def run_nightly(
             reason = "Weather API unavailable — fallback to 90%"
         else:
             calc_result = calculate_charge(
-                config=config, forecast=forecast,
-                current_soc=current_soc or 0, conn=conn,
+                config=config, forecast=forecast, conn=conn,
             )
             charge_level = calc_result.charge_level
             reason = calc_result.reason
