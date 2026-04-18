@@ -51,7 +51,7 @@ def test_get_current_soc(config):
     from src.growatt.client import GrowattClient
     mock_api = MagicMock()
     mock_api.login.return_value = {"success": True, "data": [{"plantId": "123"}]}
-    mock_api.device_list.return_value = [{"deviceSn": "ABC123", "capacity": "45%"}]
+    mock_api.device_list.return_value = [{"deviceSn": config.growatt.device_sn, "capacity": "45%"}]
     with patch("src.growatt.client.growattServer.GrowattApi", return_value=mock_api):
         client = GrowattClient(config.growatt)
         client.login()

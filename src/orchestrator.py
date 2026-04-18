@@ -65,8 +65,7 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                 peak_solar_val = ppv
                 peak_solar_hour = time_str
 
-            is_expensive = (hour > 5 or (hour == 5 and minute >= 30)) and \
-                           (hour < 23 or (hour == 23 and minute <= 30))
+            is_expensive = config.rates.is_expensive(hour, minute)
             if is_expensive:
                 expensive_consumption += sys_out
                 expensive_grid_import += grid_import
@@ -197,8 +196,8 @@ def run_nightly(
                     time_module.sleep([5, 15][attempt])
 
         if forecast is None:
-            charge_level = 90
-            reason = "Weather API unavailable — fallback to 90%"
+            charge_level = config.battery.fallback_charge_level
+            reason = f"Weather API unavailable — fallback to {charge_level}%"
         else:
             calc_result = calculate_charge(
                 config=config, forecast=forecast,
