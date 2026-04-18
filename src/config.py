@@ -100,8 +100,6 @@ def load_config(path: Path) -> Config:
         raw = yaml.safe_load(f)
 
     battery_raw = raw["battery"]
-    # charge_floor_pct may still be in old configs — ignore it
-    battery_raw.pop("charge_floor_pct", None)
 
     growatt_raw = raw["growatt"]
     growatt_raw["username"] = os.environ.get("GROWATT_USERNAME", growatt_raw["username"])

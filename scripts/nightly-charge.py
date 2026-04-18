@@ -15,7 +15,7 @@ from src.orchestrator import run_nightly
 config = load_config(project_root / "config.yaml")
 conn = init_db(project_root / "data" / "battery.db")
 weather = OpenMeteoProvider()
-growatt = GrowattClient(config.growatt)
+growatt = GrowattClient(config.growatt, rates=config.rates)
 growatt.login()
 tomorrow = date.today() + timedelta(days=1)
 result = run_nightly(config, conn, weather, growatt, tomorrow, project_root)
