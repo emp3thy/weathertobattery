@@ -17,17 +17,29 @@ def test_init_db_creates_tables(tmp_path):
     conn.close()
 
 
+def test_decisions_table_has_no_legacy_columns(tmp_path):
+    from src.db.schema import init_db
+    conn = init_db(tmp_path / "test.db")
+    cursor = conn.execute("PRAGMA table_info(decisions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert "base_charge_level" not in columns
+    assert "feedback_adjustment" not in columns
+    assert "charge_level_set" in columns
+    conn.close()
+
+
 def test_upsert_decision(tmp_path):
     from src.db.schema import init_db
     from src.db.queries import upsert_decision, get_decision
     conn = init_db(tmp_path / "test.db")
-    upsert_decision(conn, date(2026, 3, 25), "sunny", "{}", 60, 55, 5,
-                    "feedback +5", 10, 3, "open_meteo")
-    upsert_decision(conn, date(2026, 3, 25), "cloudy", "{}", 75, 70, 5,
+    upsert_decision(conn, date(2026, 3, 25), "sunny", "{}", 60,
+                    "initial", 10, 3, "open_meteo")
+    upsert_decision(conn, date(2026, 3, 25), "cloudy", "{}", 75,
                     "revised", 10, 3, "open_meteo")
     row = get_decision(conn, date(2026, 3, 25))
     assert row["charge_level_set"] == 75
     assert row["forecast_summary"] == "cloudy"
+    assert row["adjustment_reason"] == "revised"
     conn.close()
 
 
