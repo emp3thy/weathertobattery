@@ -2,7 +2,7 @@ import growattServer
 import logging
 import time as time_module
 from datetime import date
-from ..config import GrowattConfig
+from ..config import GrowattConfig, RatesConfig
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +14,9 @@ class GrowattError(Exception):
 
 
 class GrowattClient:
-    def __init__(self, config: GrowattConfig):
+    def __init__(self, config: GrowattConfig, rates: RatesConfig | None = None):
         self.config = config
+        self.rates = rates
         self._api = growattServer.GrowattApi()
         self._api.session.headers.update({"User-Agent": USER_AGENT})
         self._api.server_url = config.server_url
@@ -57,8 +58,30 @@ class GrowattClient:
                 return int(cap_str)
         raise GrowattError(f"Device {self.config.device_sn} not found")
 
+    def _charge_periods(self) -> list[tuple[int, int, int, int]]:
+        """Return up to 2 (start_h, start_m, end_h, end_m) ranges matching the
+        configured cheap window. Windows wrapping midnight split at 23:59/00:00.
+        Falls back to the historical hardcoded 23:30-05:30 window when rates
+        are not provided (preserves legacy callers)."""
+        if self.rates is None:
+            return [(23, 30, 23, 59), (0, 0, 5, 30)]
+        sh, sm = (int(x) for x in self.rates.cheap_start.split(":"))
+        eh, em = (int(x) for x in self.rates.cheap_end.split(":"))
+        if (sh, sm) < (eh, em):
+            return [(sh, sm, eh, em)]
+        return [(sh, sm, 23, 59), (0, 0, eh, em)]
+
     def set_charge_soc(self, soc_pct: int) -> bool:
         soc_pct = max(0, min(100, soc_pct))
+        periods = self._charge_periods()
+        slot1 = periods[0]
+        slot2 = periods[1] if len(periods) > 1 else (0, 0, 0, 0)
+        slot1_on = "1"
+        slot2_on = "1" if len(periods) > 1 else "0"
+
+        def _fmt(n: int) -> str:
+            return f"{n:02d}"
+
         def _do_set():
             resp = self._api.session.post(
                 f"{self.config.server_url}tcpSet.do",
@@ -67,9 +90,14 @@ class GrowattClient:
                     "serialNum": self.config.device_sn,
                     "type": "spa_ac_charge_time_period",
                     "param1": "100", "param2": str(soc_pct),
-                    "param3": "23", "param4": "30", "param5": "23", "param6": "59", "param7": "1",
-                    "param8": "00", "param9": "00", "param10": "05", "param11": "30", "param12": "1",
-                    "param13": "00", "param14": "00", "param15": "00", "param16": "00", "param17": "0",
+                    "param3": _fmt(slot1[0]), "param4": _fmt(slot1[1]),
+                    "param5": _fmt(slot1[2]), "param6": _fmt(slot1[3]),
+                    "param7": slot1_on,
+                    "param8": _fmt(slot2[0]), "param9": _fmt(slot2[1]),
+                    "param10": _fmt(slot2[2]), "param11": _fmt(slot2[3]),
+                    "param12": slot2_on,
+                    "param13": "00", "param14": "00",
+                    "param15": "00", "param16": "00", "param17": "0",
                 }
             )
             result = resp.json()
