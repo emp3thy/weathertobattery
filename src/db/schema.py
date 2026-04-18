@@ -7,8 +7,6 @@ CREATE TABLE IF NOT EXISTS decisions (
     forecast_summary TEXT NOT NULL,
     forecast_detail TEXT NOT NULL,
     charge_level_set INTEGER NOT NULL,
-    base_charge_level INTEGER NOT NULL,
-    feedback_adjustment INTEGER NOT NULL DEFAULT 0,
     adjustment_reason TEXT,
     current_soc_at_decision INTEGER,
     month INTEGER NOT NULL,
@@ -62,6 +60,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_solar_kwh REAL")
     if "expensive_battery_discharge_kwh" not in existing_columns:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_battery_discharge_kwh REAL")
+    cursor = conn.execute("PRAGMA table_info(decisions)")
+    decisions_cols = {row[1] for row in cursor.fetchall()}
+    if "feedback_adjustment" in decisions_cols:
+        conn.execute("ALTER TABLE decisions DROP COLUMN feedback_adjustment")
+    if "base_charge_level" in decisions_cols:
+        conn.execute("ALTER TABLE decisions DROP COLUMN base_charge_level")
     conn.commit()
 
 

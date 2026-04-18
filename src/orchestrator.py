@@ -225,8 +225,6 @@ def run_nightly(
         forecast_summary=forecast.condition if forecast else "unknown",
         forecast_detail=forecast_detail,
         charge_level_set=charge_level,
-        base_charge_level=charge_level,
-        feedback_adjustment=0,
         adjustment_reason=reason,
         current_soc=current_soc,
         month=target_date.month,
