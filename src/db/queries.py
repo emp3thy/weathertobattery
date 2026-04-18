@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, timedelta
+from datetime import date
 
 
 def upsert_decision(conn: sqlite3.Connection, dt: date, forecast_summary: str,
@@ -73,29 +73,6 @@ def get_actuals_range(conn: sqlite3.Connection, start: date,
         (str(start), str(end)))
     return cursor.fetchall()
 
-
-def insert_adjustment(conn: sqlite3.Connection, dt: date, direction: str,
-                      amount: int, trigger: str, prev_weather: str | None,
-                      tomorrow_forecast: str | None, grid_draw: float,
-                      surplus_export: float) -> None:
-    conn.execute("""
-        INSERT INTO adjustments (date, direction, amount, trigger,
-            previous_day_weather, tomorrow_forecast, grid_draw_kwh,
-            surplus_export_kwh)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (str(dt), direction, amount, trigger, prev_weather,
-          tomorrow_forecast, grid_draw, surplus_export))
-    conn.commit()
-
-
-def get_recent_adjustments(conn: sqlite3.Connection,
-                           days: int = 7, reference_date: date | None = None) -> list[sqlite3.Row]:
-    ref = reference_date or date.today()
-    cutoff = str(ref - timedelta(days=days))
-    cursor = conn.execute(
-        "SELECT * FROM adjustments WHERE date >= ? ORDER BY date DESC",
-        (cutoff,))
-    return cursor.fetchall()
 
 
 def get_all_decisions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
