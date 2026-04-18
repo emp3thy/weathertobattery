@@ -14,7 +14,7 @@ class GrowattError(Exception):
 
 
 class GrowattClient:
-    def __init__(self, config: GrowattConfig, rates: RatesConfig | None = None):
+    def __init__(self, config: GrowattConfig, rates: RatesConfig):
         self.config = config
         self.rates = rates
         self._api = growattServer.GrowattApi()
@@ -60,13 +60,11 @@ class GrowattClient:
 
     def _charge_periods(self) -> list[tuple[int, int, int, int]]:
         """Return up to 2 (start_h, start_m, end_h, end_m) ranges matching the
-        configured cheap window. Windows wrapping midnight split at 23:59/00:00.
-        Falls back to the historical hardcoded 23:30-05:30 window when rates
-        are not provided (preserves legacy callers)."""
-        if self.rates is None:
-            return [(23, 30, 23, 59), (0, 0, 5, 30)]
+        configured cheap window. Windows wrapping midnight split at 23:59/00:00."""
         sh, sm = (int(x) for x in self.rates.cheap_start.split(":"))
         eh, em = (int(x) for x in self.rates.cheap_end.split(":"))
+        if (sh, sm) == (eh, em):
+            raise ValueError("cheap_start and cheap_end must differ")
         if (sh, sm) < (eh, em):
             return [(sh, sm, eh, em)]
         return [(sh, sm, 23, 59), (0, 0, eh, em)]
