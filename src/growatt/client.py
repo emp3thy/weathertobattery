@@ -23,9 +23,12 @@ class GrowattClient:
         self.logged_in = False
 
     def login(self) -> None:
-        result = self._api.login(self.config.username, self.config.password)
-        if not result.get("success"):
-            raise GrowattError(f"Login failed: {result.get('error', 'unknown')}")
+        def _do_login():
+            result = self._api.login(self.config.username, self.config.password)
+            if not result.get("success"):
+                raise GrowattError(f"Login failed: {result.get('error', 'unknown')}")
+            return result
+        self._retry(_do_login)
         self.logged_in = True
         logger.info("Growatt login successful")
 
@@ -45,18 +48,22 @@ class GrowattClient:
         Returns dict of time_str -> {ppv, sysOut, userLoad, pacToUser}
         where values are strings. 288 entries per full day.
         """
-        raw = self._api.dashboard_data(
-            self.config.plant_id, growattServer.Timespan.hour, target_date
-        )
-        return raw.get("chartData", {})
+        def _do():
+            raw = self._api.dashboard_data(
+                self.config.plant_id, growattServer.Timespan.hour, target_date
+            )
+            return raw.get("chartData", {})
+        return self._retry(_do)
 
     def get_current_soc(self) -> int:
-        devices = self._api.device_list(self.config.plant_id)
-        for dev in devices:
-            if dev.get("deviceSn") == self.config.device_sn:
-                cap_str = dev.get("capacity", "0%").replace("%", "")
-                return int(cap_str)
-        raise GrowattError(f"Device {self.config.device_sn} not found")
+        def _do():
+            devices = self._api.device_list(self.config.plant_id)
+            for dev in devices:
+                if dev.get("deviceSn") == self.config.device_sn:
+                    cap_str = dev.get("capacity", "0%").replace("%", "")
+                    return int(cap_str)
+            raise GrowattError(f"Device {self.config.device_sn} not found")
+        return self._retry(_do)
 
     def _charge_periods(self) -> list[tuple[int, int, int, int]]:
         """Return up to 2 (start_h, start_m, end_h, end_m) ranges matching the

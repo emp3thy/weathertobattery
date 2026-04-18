@@ -135,3 +135,30 @@ def test_charge_periods_rejects_equal_start_end(tmp_path):
     client = GrowattClient(cfg.growatt, rates=cfg.rates)
     with pytest.raises(ValueError):
         client._charge_periods()
+
+
+def test_get_current_soc_retries_on_transient_failure(config, monkeypatch):
+    """Transient failures on get_current_soc should retry rather than bubble up."""
+    from src.growatt.client import GrowattClient
+    mock_api = MagicMock()
+    mock_api.login.return_value = {"success": True, "data": [{"plantId": "123"}]}
+    calls = {"n": 0}
+
+    def flaky_device_list(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise RuntimeError("transient")
+        return [{"deviceSn": config.growatt.device_sn, "capacity": "42%"}]
+
+    mock_api.device_list.side_effect = flaky_device_list
+
+    # Neutralize sleep inside _retry
+    import src.growatt.client as gc
+    monkeypatch.setattr(gc.time_module, "sleep", lambda *a, **k: None)
+
+    with patch("src.growatt.client.growattServer.GrowattApi", return_value=mock_api):
+        client = GrowattClient(config.growatt, rates=config.rates)
+        client.login()
+        soc = client.get_current_soc()
+    assert soc == 42
+    assert calls["n"] == 2
