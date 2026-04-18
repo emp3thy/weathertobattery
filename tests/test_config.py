@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 
 def test_load_config_returns_dataclass(tmp_path):
     config_file = tmp_path / "config.yaml"
