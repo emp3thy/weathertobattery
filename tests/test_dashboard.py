@@ -10,7 +10,7 @@ def dashboard_client(tmp_path, config):
 
     db_path = tmp_path / "test.db"
     conn = init_db(db_path)
-    upsert_decision(conn, date(2026, 3, 25), "sunny", "[]", 60, 55, 5,
+    upsert_decision(conn, date(2026, 3, 25), "sunny", "[]", 60,
                     "test", 10, 3, "open_meteo")
     insert_actuals(conn, date(2026, 3, 25), 20.0, 25.0, 5.0, 2.0,
                    "10:00", 15, 95,

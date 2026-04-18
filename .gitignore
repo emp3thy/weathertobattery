@@ -8,3 +8,4 @@ last_updated.md
 *.egg-info/
 .venv/
 .worktrees/
+.superpowers/

@@ -76,21 +76,21 @@ def _cloud_factor(cloud_cover_pct: float, floor: float) -> float:
 def _estimate_generation_hourly(
     conn: sqlite3.Connection, month: int, forecast: DayForecast, latitude: float,
     cloud_floor: float = 0.25,
-) -> tuple[float, str]:
+) -> tuple[float, float, str]:
     result = get_max_generation_for_month(conn, month)
     source_label = "max"
     if result is None:
         result = get_max_generation_for_adjacent_months(conn, month)
         source_label = "adjacent month max"
     if result is None:
-        return 0.0, "no historical generation data"
+        return 0.0, 0.0, "no historical generation data"
 
     max_gen_kwh, max_gen_date_str = result
     max_gen_date = date.fromisoformat(max_gen_date_str)
 
     max_day_solar_hours = solar_day_length(latitude, max_gen_date)
     if max_day_solar_hours <= 0:
-        return 0.0, "no solar hours on max generation day"
+        return 0.0, 0.0, "no solar hours on max generation day"
 
     kwh_per_solar_hour = max_gen_kwh / max_day_solar_hours
 
@@ -105,7 +105,7 @@ def _estimate_generation_hourly(
         f"{max_day_solar_hours:.1f} solar hrs, "
         f"cloud-adjusted from {forecast_solar_hours} forecast hrs"
     )
-    return estimated, description
+    return estimated, kwh_per_solar_hour, description
 
 
 def _morning_floor_kwh(
@@ -164,7 +164,6 @@ def _morning_floor_kwh(
 def calculate_charge(
     config: Config,
     forecast: DayForecast,
-    current_soc: int,
     conn: sqlite3.Connection,
 ) -> ChargeResult:
     # Manual override
@@ -179,7 +178,7 @@ def calculate_charge(
     cloud_floor = config.battery.cloud_floor_pct / 100
 
     expected_consumption, consumption_source = _estimate_consumption(conn)
-    expected_generation, generation_source = _estimate_generation_hourly(
+    expected_generation, kwh_per_solar_hour, generation_source = _estimate_generation_hourly(
         conn, month, forecast, config.location.latitude, cloud_floor
     )
 
@@ -188,21 +187,6 @@ def calculate_charge(
 
     gap_kwh = expected_consumption - expected_generation
     charge_pct = (gap_kwh / usable_capacity_kwh) * 100
-
-    # Morning floor: ensure enough charge to bridge cheap-rate end to solar
-    result = get_max_generation_for_month(conn, month)
-    if result is None:
-        result = get_max_generation_for_adjacent_months(conn, month)
-    if result is not None:
-        max_gen_kwh, max_gen_date_str = result
-        max_gen_date = date.fromisoformat(max_gen_date_str)
-        max_day_solar_hours = solar_day_length(config.location.latitude, max_gen_date)
-        if max_day_solar_hours > 0:
-            kwh_per_solar_hour = max_gen_kwh / max_day_solar_hours
-        else:
-            kwh_per_solar_hour = 0.0
-    else:
-        kwh_per_solar_hour = 0.0
 
     morning_kwh = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour, cloud_floor)
     morning_pct = (morning_kwh / usable_capacity_kwh) * 100
@@ -217,7 +201,6 @@ def calculate_charge(
     reason_parts = [
         f"Consumption: {expected_consumption:.3f}kWh ({consumption_source})",
         f"Generation: {expected_generation:.3f}kWh ({generation_source})",
-        f"Current SOC: {current_soc}%",
         f"Gap: {gap_kwh:.3f}kWh",
         morning_floor_note,
         f"Charge level: {charge_level}%",

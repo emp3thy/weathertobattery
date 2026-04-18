@@ -65,8 +65,7 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                 peak_solar_val = ppv
                 peak_solar_hour = time_str
 
-            is_expensive = (hour > 5 or (hour == 5 and minute >= 30)) and \
-                           (hour < 23 or (hour == 23 and minute <= 30))
+            is_expensive = config.rates.is_expensive(hour, minute)
             if is_expensive:
                 expensive_consumption += sys_out
                 expensive_grid_import += grid_import
@@ -180,6 +179,7 @@ def run_nightly(
             logger.warning(f"Failed to clear manual override: {e}")
     else:
         # Fetch forecast with retry
+        _BACKOFF = (5, 15, 45)
         for attempt in range(3):
             try:
                 forecast = weather_provider.get_forecast(
@@ -194,15 +194,14 @@ def run_nightly(
                     forecast = None
                 else:
                     import time as time_module
-                    time_module.sleep([5, 15][attempt])
+                    time_module.sleep(_BACKOFF[attempt])
 
         if forecast is None:
-            charge_level = 90
-            reason = "Weather API unavailable — fallback to 90%"
+            charge_level = config.battery.fallback_charge_level
+            reason = f"Weather API unavailable — fallback to {charge_level}%"
         else:
             calc_result = calculate_charge(
-                config=config, forecast=forecast,
-                current_soc=current_soc or 0, conn=conn,
+                config=config, forecast=forecast, conn=conn,
             )
             charge_level = calc_result.charge_level
             reason = calc_result.reason
@@ -225,8 +224,6 @@ def run_nightly(
         forecast_summary=forecast.condition if forecast else "unknown",
         forecast_detail=forecast_detail,
         charge_level_set=charge_level,
-        base_charge_level=charge_level,
-        feedback_adjustment=0,
         adjustment_reason=reason,
         current_soc=current_soc,
         month=target_date.month,

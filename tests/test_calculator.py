@@ -48,6 +48,15 @@ def _populate_expensive_consumption(conn, values):
 # Test 1: Manual override
 # --------------------------------------------------------------------------- #
 
+def test_calculate_charge_has_no_current_soc_param(tmp_path, config):
+    """Signature hygiene: current_soc was removed from the gap calc in commit
+    8d340cb but left as a dead parameter."""
+    import inspect
+    from src.calculator.engine import calculate_charge
+    params = inspect.signature(calculate_charge).parameters
+    assert "current_soc" not in params
+
+
 def test_manual_override(tmp_path, config):
     from src.calculator.engine import calculate_charge
     from src.config import load_config
@@ -58,7 +67,7 @@ def test_manual_override(tmp_path, config):
     conn = _make_db(tmp_path)
     forecast = _make_forecast(date(2026, 6, 15))
     result = calculate_charge(config=override_config, forecast=forecast,
-                              current_soc=20, conn=conn)
+                              conn=conn)
     assert result.charge_level == 85
     assert "manual" in result.reason.lower()
 
@@ -76,7 +85,7 @@ def test_sunny_day_good_generation_charges_low(tmp_path, config):
     _populate_expensive_consumption(conn, [8.0, 8.5, 7.5, 9.0, 8.0])
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=50, conn=conn)
+                              conn=conn)
     # Generation >> consumption, battery already 50%, expect very low or 0
     # (+10 from min_soc_pct offset)
     assert result.charge_level <= 30
@@ -95,7 +104,7 @@ def test_cloudy_day_poor_generation_charges_high(tmp_path, config):
     _populate_expensive_consumption(conn, [20.0, 21.0, 19.5, 20.5, 20.0])
     forecast = _make_forecast(date(2026, 3, 15), condition="cloudy")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=10, conn=conn)
+                              conn=conn)
     assert result.charge_level >= 70
 
 
@@ -111,7 +120,7 @@ def test_winter_day_no_winter_override(tmp_path, config):
     _populate_expensive_consumption(conn, [22.0, 23.0, 21.0, 22.5, 22.0])
     forecast = _make_forecast(date(2026, 12, 15), condition="cloudy")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=10, conn=conn)
+                              conn=conn)
     # Should charge high due to low generation, but reason must not say "winter"
     assert result.charge_level >= 60
     assert "winter" not in result.reason.lower()
@@ -136,7 +145,7 @@ def test_falls_back_to_wider_month_window(tmp_path, config):
     _populate_expensive_consumption(conn, [8.0, 8.5, 7.5, 9.0, 8.0])
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=50, conn=conn)
+                              conn=conn)
     # Should have found enough data via wide window
     assert "max" in result.reason.lower() or "adjacent" in result.reason.lower()
     assert result.charge_level <= 30
@@ -159,7 +168,7 @@ def test_falls_back_to_total_consumption(tmp_path, config):
                        peak_solar_hour=None, min_soc=None, max_soc=None)
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=20, conn=conn)
+                              conn=conn)
     assert "total consumption fallback" in result.reason.lower()
 
 
@@ -176,7 +185,7 @@ def test_charge_clamped_to_zero_with_massive_generation(tmp_path, config):
     _populate_expensive_consumption(conn, [5.0, 5.0, 5.0, 5.0, 5.0])
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=80, conn=conn)
+                              conn=conn)
     # Gap is hugely negative, but morning floor (buffer only, solar covers load
     # immediately) sets the minimum. Daily gap is not binding.
     morning_floor_pct = int(round(config.battery.morning_buffer_kwh / config.battery.usable_capacity_kwh * 100)) + config.battery.min_soc_pct
@@ -289,7 +298,7 @@ def test_estimate_generation_hourly_clear_sky(tmp_path, config):
     # 12 hours of 0% cloud
     cloud_hours = [(h, 0) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
-    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    gen_kwh, _, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
     # Should be close to 34 kWh (may differ slightly due to solar hours ratio)
     assert 30.0 <= gen_kwh <= 38.0
     assert "max" in source.lower()
@@ -302,8 +311,8 @@ def test_estimate_generation_hourly_full_cloud(tmp_path, config):
     _populate_generation(conn, month=3, condition="sunny", values=[20.0, 34.0, 25.0, 30.0, 28.0])
     cloud_hours = [(h, 100) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
-    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
-    clear_sky, _ = _estimate_generation_hourly(conn, 3,
+    gen_kwh, _, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    clear_sky, _, _ = _estimate_generation_hourly(conn, 3,
         _make_forecast_with_cloud(date(2026, 3, 15), [(h, 0) for h in range(6, 18)]),
         51.5)
     assert 0.2 * clear_sky <= gen_kwh <= 0.3 * clear_sky
@@ -316,7 +325,7 @@ def test_estimate_generation_hourly_half_cloud(tmp_path, config):
     _populate_generation(conn, month=3, condition="sunny", values=[20.0, 34.0, 25.0, 30.0, 28.0])
     cloud_hours = [(h, 50) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
-    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    gen_kwh, _, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
     # With 25% floor, 50% cloud gives: 0.25 + 0.75*0.5 = 0.625 of clear-sky
     assert 18.0 <= gen_kwh <= 28.0
 
@@ -332,8 +341,8 @@ def test_estimate_generation_hourly_mixed_cloud(tmp_path, config):
     cloud_pm_clear = [(h, 100) for h in range(6, 12)] + [(h, 0) for h in range(12, 18)]
     forecast_am = _make_forecast_with_cloud(date(2026, 6, 15), cloud_am_clear)
     forecast_pm = _make_forecast_with_cloud(date(2026, 6, 15), cloud_pm_clear)
-    gen_am, _ = _estimate_generation_hourly(conn, 6, forecast_am, 51.5)
-    gen_pm, _ = _estimate_generation_hourly(conn, 6, forecast_pm, 51.5)
+    gen_am, _, _ = _estimate_generation_hourly(conn, 6, forecast_am, 51.5)
+    gen_pm, _, _ = _estimate_generation_hourly(conn, 6, forecast_pm, 51.5)
     # Both should be ~half, and roughly equal (uniform kwh per hour model)
     assert abs(gen_am - gen_pm) < 2.0
 
@@ -346,7 +355,7 @@ def test_estimate_generation_hourly_fallback_adjacent_month(tmp_path, config):
     _populate_generation(conn, month=3, condition="sunny", values=[30.0, 34.0, 28.0, 32.0, 29.0])
     cloud_hours = [(h, 0) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 4, 15), cloud_hours)
-    gen_kwh, source = _estimate_generation_hourly(conn, 4, forecast, 51.5)
+    gen_kwh, _, source = _estimate_generation_hourly(conn, 4, forecast, 51.5)
     assert gen_kwh > 0.0
     assert "adjacent" in source.lower()
 
@@ -357,9 +366,27 @@ def test_estimate_generation_hourly_no_data(tmp_path, config):
     conn = _make_db(tmp_path)
     cloud_hours = [(h, 0) for h in range(6, 18)]
     forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
-    gen_kwh, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    gen_kwh, _, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
     assert gen_kwh == 0.0
     assert "no" in source.lower()
+
+
+def test_estimate_generation_hourly_returns_kwh_per_solar_hour(tmp_path):
+    """Helper returns (total_kwh, kwh_per_solar_hour, source) so the caller
+    doesn't re-query the DB."""
+    from src.calculator.engine import _estimate_generation_hourly
+    from src.db.schema import init_db
+    from src.db.queries import insert_actuals
+
+    conn = init_db(tmp_path / "test.db")
+    _populate_generation(conn, month=3, condition="sunny",
+                         values=[20.0, 34.0, 25.0, 30.0, 28.0])
+    cloud_hours = [(h, 0) for h in range(6, 18)]
+    forecast = _make_forecast_with_cloud(date(2026, 3, 15), cloud_hours)
+    total, per_hour, source = _estimate_generation_hourly(conn, 3, forecast, 51.5)
+    assert total > 0
+    assert per_hour > 0
+    assert "max" in source.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -514,7 +541,7 @@ def test_sunny_day_uses_morning_floor(tmp_path, config):
     ]
     forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=50, conn=conn)
+                              conn=conn)
     # Daily gap would be negative (generation >> consumption with 50% SOC)
     # But morning floor should set a minimum > 0
     assert result.charge_level > 0
@@ -548,9 +575,9 @@ def test_min_soc_offset_applied(tmp_path):
     config_zero = load_config(config_file_zero)
 
     result_with_offset = calculate_charge(config=config, forecast=forecast,
-                                          current_soc=50, conn=conn)
+                                          conn=conn)
     result_without_offset = calculate_charge(config=config_zero, forecast=forecast,
-                                             current_soc=50, conn=conn)
+                                             conn=conn)
 
     # With min_soc=10: effective SOC = 50-10 = 40%, output += 10
     # With min_soc=0:  effective SOC = 50-0  = 50%, output += 0
@@ -573,7 +600,7 @@ def test_cloudy_day_daily_gap_wins(tmp_path, config):
     ]
     forecast = _make_forecast_with_radiation(date(2026, 3, 15), hourly_data)
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=10, conn=conn)
+                              conn=conn)
     # Daily gap should be large (consumption >> generation)
     assert result.charge_level >= 70
     # Morning floor should not be the binding constraint

@@ -84,3 +84,39 @@ def test_orchestrator_weather_failure_falls_back(tmp_path, config):
     assert result["charge_level"] == 90
     assert "unavailable" in result["reason"].lower() or "fallback" in result["reason"].lower()
     conn.close()
+
+
+def test_orchestrator_weather_retry_backoff_does_not_indexerror(tmp_path, config, monkeypatch):
+    """Regression: backoff schedule must not IndexError if the loop ever expands."""
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+
+    conn = init_db(tmp_path / "test.db")
+    _seed_actuals(conn)
+
+    call_count = {"n": 0}
+
+    def flaky_forecast(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            raise RuntimeError("transient")
+        return _make_forecast(date(2026, 7, 15))
+
+    mock_weather = MagicMock()
+    mock_weather.get_forecast.side_effect = flaky_forecast
+
+    mock_growatt = MagicMock()
+    mock_growatt.get_current_soc.return_value = 20
+    mock_growatt.set_charge_soc.return_value = True
+    mock_growatt.get_hourly_data.return_value = {}
+
+    import time as _time
+    monkeypatch.setattr(_time, "sleep", lambda *a, **k: None)
+
+    result = run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=date(2026, 7, 15),
+        project_root=tmp_path,
+    )
+    assert result["success"] is True
+    assert call_count["n"] == 3
