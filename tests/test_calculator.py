@@ -48,6 +48,15 @@ def _populate_expensive_consumption(conn, values):
 # Test 1: Manual override
 # --------------------------------------------------------------------------- #
 
+def test_calculate_charge_has_no_current_soc_param(tmp_path, config):
+    """Signature hygiene: current_soc was removed from the gap calc in commit
+    8d340cb but left as a dead parameter."""
+    import inspect
+    from src.calculator.engine import calculate_charge
+    params = inspect.signature(calculate_charge).parameters
+    assert "current_soc" not in params
+
+
 def test_manual_override(tmp_path, config):
     from src.calculator.engine import calculate_charge
     from src.config import load_config
@@ -58,7 +67,7 @@ def test_manual_override(tmp_path, config):
     conn = _make_db(tmp_path)
     forecast = _make_forecast(date(2026, 6, 15))
     result = calculate_charge(config=override_config, forecast=forecast,
-                              current_soc=20, conn=conn)
+                              conn=conn)
     assert result.charge_level == 85
     assert "manual" in result.reason.lower()
 
@@ -76,7 +85,7 @@ def test_sunny_day_good_generation_charges_low(tmp_path, config):
     _populate_expensive_consumption(conn, [8.0, 8.5, 7.5, 9.0, 8.0])
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=50, conn=conn)
+                              conn=conn)
     # Generation >> consumption, battery already 50%, expect very low or 0
     # (+10 from min_soc_pct offset)
     assert result.charge_level <= 30
@@ -95,7 +104,7 @@ def test_cloudy_day_poor_generation_charges_high(tmp_path, config):
     _populate_expensive_consumption(conn, [20.0, 21.0, 19.5, 20.5, 20.0])
     forecast = _make_forecast(date(2026, 3, 15), condition="cloudy")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=10, conn=conn)
+                              conn=conn)
     assert result.charge_level >= 70
 
 
@@ -111,7 +120,7 @@ def test_winter_day_no_winter_override(tmp_path, config):
     _populate_expensive_consumption(conn, [22.0, 23.0, 21.0, 22.5, 22.0])
     forecast = _make_forecast(date(2026, 12, 15), condition="cloudy")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=10, conn=conn)
+                              conn=conn)
     # Should charge high due to low generation, but reason must not say "winter"
     assert result.charge_level >= 60
     assert "winter" not in result.reason.lower()
@@ -136,7 +145,7 @@ def test_falls_back_to_wider_month_window(tmp_path, config):
     _populate_expensive_consumption(conn, [8.0, 8.5, 7.5, 9.0, 8.0])
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=50, conn=conn)
+                              conn=conn)
     # Should have found enough data via wide window
     assert "max" in result.reason.lower() or "adjacent" in result.reason.lower()
     assert result.charge_level <= 30
@@ -159,7 +168,7 @@ def test_falls_back_to_total_consumption(tmp_path, config):
                        peak_solar_hour=None, min_soc=None, max_soc=None)
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=20, conn=conn)
+                              conn=conn)
     assert "total consumption fallback" in result.reason.lower()
 
 
@@ -176,7 +185,7 @@ def test_charge_clamped_to_zero_with_massive_generation(tmp_path, config):
     _populate_expensive_consumption(conn, [5.0, 5.0, 5.0, 5.0, 5.0])
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=80, conn=conn)
+                              conn=conn)
     # Gap is hugely negative, but morning floor (buffer only, solar covers load
     # immediately) sets the minimum. Daily gap is not binding.
     morning_floor_pct = int(round(config.battery.morning_buffer_kwh / config.battery.usable_capacity_kwh * 100)) + config.battery.min_soc_pct
@@ -514,7 +523,7 @@ def test_sunny_day_uses_morning_floor(tmp_path, config):
     ]
     forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=50, conn=conn)
+                              conn=conn)
     # Daily gap would be negative (generation >> consumption with 50% SOC)
     # But morning floor should set a minimum > 0
     assert result.charge_level > 0
@@ -548,9 +557,9 @@ def test_min_soc_offset_applied(tmp_path):
     config_zero = load_config(config_file_zero)
 
     result_with_offset = calculate_charge(config=config, forecast=forecast,
-                                          current_soc=50, conn=conn)
+                                          conn=conn)
     result_without_offset = calculate_charge(config=config_zero, forecast=forecast,
-                                             current_soc=50, conn=conn)
+                                             conn=conn)
 
     # With min_soc=10: effective SOC = 50-10 = 40%, output += 10
     # With min_soc=0:  effective SOC = 50-0  = 50%, output += 0
@@ -573,7 +582,7 @@ def test_cloudy_day_daily_gap_wins(tmp_path, config):
     ]
     forecast = _make_forecast_with_radiation(date(2026, 3, 15), hourly_data)
     result = calculate_charge(config=config, forecast=forecast,
-                              current_soc=10, conn=conn)
+                              conn=conn)
     # Daily gap should be large (consumption >> generation)
     assert result.charge_level >= 70
     # Morning floor should not be the binding constraint

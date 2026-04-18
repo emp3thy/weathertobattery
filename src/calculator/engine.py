@@ -164,7 +164,6 @@ def _morning_floor_kwh(
 def calculate_charge(
     config: Config,
     forecast: DayForecast,
-    current_soc: int,
     conn: sqlite3.Connection,
 ) -> ChargeResult:
     # Manual override
@@ -217,7 +216,6 @@ def calculate_charge(
     reason_parts = [
         f"Consumption: {expected_consumption:.3f}kWh ({consumption_source})",
         f"Generation: {expected_generation:.3f}kWh ({generation_source})",
-        f"Current SOC: {current_soc}%",
         f"Gap: {gap_kwh:.3f}kWh",
         morning_floor_note,
         f"Charge level: {charge_level}%",
