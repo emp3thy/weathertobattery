@@ -180,6 +180,7 @@ def run_nightly(
             logger.warning(f"Failed to clear manual override: {e}")
     else:
         # Fetch forecast with retry
+        _BACKOFF = (5, 15, 45)
         for attempt in range(3):
             try:
                 forecast = weather_provider.get_forecast(
@@ -194,7 +195,7 @@ def run_nightly(
                     forecast = None
                 else:
                     import time as time_module
-                    time_module.sleep([5, 15][attempt])
+                    time_module.sleep(_BACKOFF[attempt])
 
         if forecast is None:
             charge_level = 90
