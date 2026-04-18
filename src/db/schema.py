@@ -32,17 +32,6 @@ CREATE TABLE IF NOT EXISTS actuals (
     expensive_battery_discharge_kwh REAL
 );
 
-CREATE TABLE IF NOT EXISTS adjustments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    direction TEXT NOT NULL CHECK(direction IN ('up', 'down')),
-    amount INTEGER NOT NULL,
-    trigger TEXT NOT NULL CHECK(trigger IN ('grid_draw', 'surplus_export')),
-    previous_day_weather TEXT,
-    tomorrow_forecast TEXT,
-    grid_draw_kwh REAL,
-    surplus_export_kwh REAL
-);
 """
 
 
@@ -62,6 +51,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_solar_kwh REAL")
     if "expensive_battery_discharge_kwh" not in existing_columns:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_battery_discharge_kwh REAL")
+    # Drop legacy adjustments table (never written to after feedback-loop removal)
+    conn.execute("DROP TABLE IF EXISTS adjustments")
     conn.commit()
 
 
