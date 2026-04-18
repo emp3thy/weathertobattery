@@ -80,48 +80,6 @@ def get_all_actuals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return cursor.fetchall()
 
 
-def get_generation_by_weather(conn: sqlite3.Connection, month: int, condition: str) -> list[float]:
-    """Get solar generation for days matching a weather condition in a given month."""
-    cursor = conn.execute(
-        """SELECT total_solar_generation_kwh FROM actuals
-           WHERE CAST(strftime('%m', date) AS INTEGER) = ?
-           AND weather_condition = ?
-           ORDER BY date DESC""",
-        (month, condition))
-    return [row[0] for row in cursor.fetchall()]
-
-
-def get_generation_by_weather_wide(conn: sqlite3.Connection, month: int, condition: str) -> list[float]:
-    """Get solar generation for days matching condition in month +/- 1."""
-    months = [(month - 2) % 12 + 1, month, month % 12 + 1]
-    placeholders = ",".join("?" * len(months))
-    cursor = conn.execute(
-        f"""SELECT total_solar_generation_kwh FROM actuals
-            WHERE CAST(strftime('%m', date) AS INTEGER) IN ({placeholders})
-            AND weather_condition = ?
-            ORDER BY date DESC""",
-        (*months, condition))
-    return [row[0] for row in cursor.fetchall()]
-
-
-def get_generation_by_condition(conn: sqlite3.Connection, condition: str) -> list[float]:
-    """Get solar generation for all days matching a weather condition."""
-    cursor = conn.execute(
-        "SELECT total_solar_generation_kwh FROM actuals WHERE weather_condition = ? ORDER BY date DESC",
-        (condition,))
-    return [row[0] for row in cursor.fetchall()]
-
-
-def get_generation_by_month(conn: sqlite3.Connection, month: int) -> list[float]:
-    """Get solar generation for all days in a given month (any weather)."""
-    cursor = conn.execute(
-        """SELECT total_solar_generation_kwh FROM actuals
-           WHERE CAST(strftime('%m', date) AS INTEGER) = ?
-           ORDER BY date DESC""",
-        (month,))
-    return [row[0] for row in cursor.fetchall()]
-
-
 def get_recent_expensive_consumption(conn: sqlite3.Connection, days: int = 7) -> list[float]:
     """Get expensive-hours consumption for the most recent N days that have it."""
     cursor = conn.execute(
