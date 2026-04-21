@@ -159,7 +159,9 @@ def create_app(db_path: Path, config) -> FastAPI:
         # Chart data: last 90 days in chronological order
         chart_days = list(reversed(daily[:90]))
         chart_labels = [d["date"] for d in chart_days]
-        chart_values = [round(d["battery_value_pence"], 1) for d in chart_days]
+        chart_battery_value = [round(d["battery_value_pence"], 1) for d in chart_days]
+        chart_no_solar_saving = [round(d["no_solar_saving_pence"], 1) for d in chart_days]
+        chart_actual_cost = [round(d["actual_cost_pence"], 1) for d in chart_days]
 
         return templates.TemplateResponse("savings.html", {
             "request": request,
@@ -167,7 +169,9 @@ def create_app(db_path: Path, config) -> FastAPI:
             "monthly": monthly,
             "all_time": all_time,
             "chart_labels": chart_labels,
-            "chart_values": chart_values,
+            "chart_battery_value": chart_battery_value,
+            "chart_no_solar_saving": chart_no_solar_saving,
+            "chart_actual_cost": chart_actual_cost,
             "cheap_rate": cheap_rate,
             "expensive_rate": expensive_rate,
         })
