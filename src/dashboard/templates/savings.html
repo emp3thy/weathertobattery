@@ -20,7 +20,7 @@
 </div>
 
 <div class="card">
-    <h2 style="margin-top: 0;">Daily Battery Value (last 90 days)</h2>
+    <h2 style="margin-top: 0;">Daily Savings & Cost (last 90 days)</h2>
     <canvas id="batteryChart"></canvas>
 </div>
 
@@ -30,15 +30,35 @@
         type: 'line',
         data: {
             labels: {{ chart_labels | tojson }},
-            datasets: [{
-                label: 'Battery value (pence)',
-                data: {{ chart_values | tojson }},
-                borderColor: '#2563eb',
-                backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2,
-            }]
+            datasets: [
+                {
+                    label: 'Battery value (pence)',
+                    data: {{ chart_battery_value | tojson }},
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                },
+                {
+                    label: 'No-solar saving (pence)',
+                    data: {{ chart_no_solar_saving | tojson }},
+                    borderColor: '#16a34a',
+                    backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                },
+                {
+                    label: 'Actual grid cost (pence)',
+                    data: {{ chart_actual_cost | tojson }},
+                    borderColor: '#dc2626',
+                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 2,
+                }
+            ]
         },
         options: {
             responsive: true,
@@ -52,7 +72,7 @@
                 }
             },
             plugins: {
-                legend: { display: false }
+                legend: { display: true }
             }
         }
     });
