@@ -158,7 +158,7 @@ def _morning_floor_kwh(
     if not solar_covers_load_found and gap_hours == 0:
         return 0.0
 
-    return hourly_consumption * gap_hours + config.battery.morning_buffer_kwh
+    return hourly_consumption * gap_hours
 
 
 def calculate_charge(

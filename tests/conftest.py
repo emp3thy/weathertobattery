@@ -15,7 +15,6 @@ growatt:
 battery:
   total_capacity_kwh: 13.3
   usable_fraction: 0.90
-  morning_buffer_kwh: 2.0
 weather:
   provider: "open_meteo"
 rates:

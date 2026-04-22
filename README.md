@@ -57,7 +57,6 @@ Edit `config.yaml`:
 | `battery` | `usable_fraction` | Usable fraction (e.g. 0.90 for 90%) |
 | `battery` | `min_soc_pct` | Minimum state of charge to maintain (default 10%) |
 | `battery` | `cloud_floor_pct` | Minimum % of clear-sky output at 100% cloud (default 25%) |
-| `battery` | `morning_buffer_kwh` | Extra kWh buffer for the morning gap (default 2.0) |
 | `battery` | `fallback_charge_level` | Charge level when weather API is unavailable (default 90%) |
 | `rates` | `cheap_start`, `cheap_end` | Your cheap-rate window (e.g. 23:30 to 05:30) |
 | `rates` | `cheap_pence_per_kwh`, `expensive_pence_per_kwh` | Tariff rates for savings calculation |

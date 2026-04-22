@@ -186,10 +186,9 @@ def test_charge_clamped_to_zero_with_massive_generation(tmp_path, config):
     forecast = _make_forecast(date(2026, 6, 15), condition="sunny")
     result = calculate_charge(config=config, forecast=forecast,
                               conn=conn)
-    # Gap is hugely negative, but morning floor (buffer only, solar covers load
-    # immediately) sets the minimum. Daily gap is not binding.
-    morning_floor_pct = int(round(config.battery.morning_buffer_kwh / config.battery.usable_capacity_kwh * 100)) + config.battery.min_soc_pct
-    assert result.charge_level == morning_floor_pct
+    # Gap is hugely negative; morning floor is 0 (solar covers load
+    # immediately, no buffer). min_soc_pct floor binds on the output.
+    assert result.charge_level == config.battery.min_soc_pct
     assert "(binding)" in result.reason
 
 
@@ -438,8 +437,8 @@ def test_morning_floor_sunny_day(tmp_path, config):
 
     result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
     # With diffuse radiation floor, solar covers load from hour 7 onwards.
-    # Gap is 1 hour (06) or 0 hours + 2.0 buffer
-    assert 2.0 <= result <= 4.0
+    # Gap is 0 or 1 hour, hourly consumption ~1.11 kWh.
+    assert 0.0 <= result <= 1.5
 
 
 def test_morning_floor_cloudy_day(tmp_path, config):
@@ -471,7 +470,7 @@ def test_morning_floor_cloudy_day(tmp_path, config):
     # Generation per hour is tiny (kwh_per_solar_hour ~0.44 * 10-20% clear = ~0.04-0.09)
     # which is well below hourly consumption of 1.11 kWh
     # All 12 forecast hours from hour 6 onward are gap hours
-    # Floor = 12 * 1.11 + 2.0 = ~15.3 kWh
+    # Floor = 12 * 1.11 = ~13.3 kWh
     assert result > 10.0
 
 
@@ -487,7 +486,7 @@ def test_morning_floor_no_forecast_data(tmp_path, config):
 
 
 def test_morning_floor_solar_covers_load_immediately(tmp_path, config):
-    """Solar covers load at first expensive hour — floor is just the buffer."""
+    """Solar covers load at first expensive hour — no gap, no floor."""
     from src.calculator.engine import _morning_floor_kwh
     conn = _make_db(tmp_path)
     _populate_generation(conn, month=6, condition="sunny",
@@ -507,8 +506,8 @@ def test_morning_floor_solar_covers_load_immediately(tmp_path, config):
     result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
     # kwh_per_solar_hour ~2.6, at 95% clear = ~2.47, vs hourly consumption 1.11
     # Solar covers load at hour 6 immediately, gap_hours = 0
-    # Floor = 0 * 1.11 + 2.0 = 2.0 (just the buffer)
-    assert result == config.battery.morning_buffer_kwh
+    # Floor = 0 * 1.11 = 0.0
+    assert result == 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -569,8 +568,8 @@ def test_min_soc_offset_applied(tmp_path):
     # Create a config with min_soc_pct=0 for comparison
     config_file_zero = tmp_path / "config_zero.yaml"
     config_file_zero.write_text(VALID_CONFIG_YAML.replace(
-        "morning_buffer_kwh: 2.0",
-        "morning_buffer_kwh: 2.0\n  min_soc_pct: 0"
+        "usable_fraction: 0.90",
+        "usable_fraction: 0.90\n  min_soc_pct: 0"
     ))
     config_zero = load_config(config_file_zero)
 
