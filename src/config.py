@@ -30,7 +30,6 @@ class BatteryConfig:
     total_capacity_kwh: float
     usable_fraction: float
     fallback_charge_level: int = 90
-    morning_buffer_kwh: float = 2.0
     min_soc_pct: int = 10
     cloud_floor_pct: float = 25.0
 
