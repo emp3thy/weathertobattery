@@ -32,7 +32,7 @@
             labels: {{ chart_labels | tojson }},
             datasets: [
                 {
-                    label: 'Battery value (pence)',
+                    label: 'Battery value (£)',
                     data: {{ chart_battery_value | tojson }},
                     borderColor: '#2563eb',
                     backgroundColor: 'rgba(37, 99, 235, 0.1)',
@@ -41,7 +41,7 @@
                     pointRadius: 2,
                 },
                 {
-                    label: 'No-solar saving (pence)',
+                    label: 'No-solar saving (£)',
                     data: {{ chart_no_solar_saving | tojson }},
                     borderColor: '#16a34a',
                     backgroundColor: 'rgba(22, 163, 74, 0.1)',
@@ -50,7 +50,7 @@
                     pointRadius: 2,
                 },
                 {
-                    label: 'Actual grid cost (pence)',
+                    label: 'Actual grid cost (£)',
                     data: {{ chart_actual_cost | tojson }},
                     borderColor: '#dc2626',
                     backgroundColor: 'rgba(220, 38, 38, 0.1)',
@@ -64,7 +64,7 @@
             responsive: true,
             scales: {
                 y: {
-                    title: { display: true, text: 'Pence' },
+                    title: { display: true, text: '£' },
                     beginAtZero: true,
                 },
                 x: {
