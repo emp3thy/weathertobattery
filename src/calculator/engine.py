@@ -112,16 +112,21 @@ def _morning_floor_kwh(
     config: Config,
     forecast: DayForecast,
     expected_consumption: float,
-    kwh_per_solar_hour: float,
-    cloud_floor: float = 0.25,
+    expected_generation: float,
 ) -> float:
     """Calculate minimum kWh needed to bridge cheap-rate end to solar-covers-load.
 
-    Returns the kWh the battery needs to cover morning consumption from
-    cheap_end until hourly solar generation exceeds hourly consumption,
-    plus the configured morning buffer.
+    Each forecast hour's generation share is its `solar_radiation_wm2` divided
+    by the day's total radiation, multiplied by `expected_generation`. Using
+    the radiation profile (not a flat per-solar-hour rate) accounts for low
+    sun elevation at sunrise — a clear-sky 06:00 hour produces far less than a
+    clear-sky 12:00 hour.
     """
-    if not forecast.hourly or kwh_per_solar_hour <= 0:
+    if not forecast.hourly or expected_generation <= 0:
+        return 0.0
+
+    total_radiation = sum(h.solar_radiation_wm2 for h in forecast.hourly)
+    if total_radiation <= 0:
         return 0.0
 
     # Parse cheap_end hour (round up partial hours: 05:30 -> hour 6)
@@ -149,7 +154,8 @@ def _morning_floor_kwh(
     for h_forecast in sorted(forecast.hourly, key=lambda h: h.hour):
         if h_forecast.hour < first_expensive_hour:
             continue
-        hour_gen = kwh_per_solar_hour * _cloud_factor(h_forecast.cloud_cover_pct, cloud_floor)
+        hour_share = h_forecast.solar_radiation_wm2 / total_radiation
+        hour_gen = expected_generation * hour_share
         if hour_gen >= hourly_consumption:
             solar_covers_load_found = True
             break
@@ -178,7 +184,7 @@ def calculate_charge(
     cloud_floor = config.battery.cloud_floor_pct / 100
 
     expected_consumption, consumption_source = _estimate_consumption(conn)
-    expected_generation, kwh_per_solar_hour, generation_source = _estimate_generation_hourly(
+    expected_generation, _, generation_source = _estimate_generation_hourly(
         conn, month, forecast, config.location.latitude, cloud_floor
     )
 
@@ -188,7 +194,7 @@ def calculate_charge(
     gap_kwh = expected_consumption - expected_generation
     charge_pct = (gap_kwh / usable_capacity_kwh) * 100
 
-    morning_kwh = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour, cloud_floor)
+    morning_kwh = _morning_floor_kwh(config, forecast, expected_consumption, expected_generation)
     morning_pct = (morning_kwh / usable_capacity_kwh) * 100
 
     if morning_pct > charge_pct:

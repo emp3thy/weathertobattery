@@ -409,15 +409,13 @@ def _make_forecast_with_radiation(target_date, hourly_data):
 
 
 def test_morning_floor_sunny_day(tmp_path, config):
-    """Sunny day: solar covers load by ~8am, morning floor covers 06:00-08:00 + buffer."""
+    """Sunny day with weak dawn radiation — gap closes by hour 8."""
     from src.calculator.engine import _morning_floor_kwh
-    conn = _make_db(tmp_path)
-    _populate_generation(conn, month=4, condition="sunny",
-                         values=[30.0, 35.0, 32.0, 34.0, 31.0])
     hourly_data = [
+        # (hour, cloud_pct, radiation_wm2)
         (6, 65, 50),    # 6am: heavy cloud, weak solar
         (7, 65, 100),   # 7am: still heavy cloud
-        (8, 10, 400),   # 8am: mostly clear — generation should exceed consumption here
+        (8, 10, 400),   # 8am: mostly clear
         (9, 10, 600),
         (10, 5, 700),
         (11, 5, 800),
@@ -431,22 +429,20 @@ def test_morning_floor_sunny_day(tmp_path, config):
         (19, 50, 20),
     ]
     forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
-    expected_consumption = 20.0
-    from src.calculator.engine import solar_day_length
-    kwh_per_solar_hour = 35.0 / solar_day_length(51.4067, date(2025, 4, 2))
-
-    result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
-    # With diffuse radiation floor, solar covers load from hour 7 onwards.
-    # Gap is 0 or 1 hour, hourly consumption ~1.11 kWh.
-    assert 0.0 <= result <= 1.5
+    expected_consumption = 20.0  # hourly_consumption = 1.111 kWh
+    expected_generation = 25.0
+    # total radiation = 6300 W/m²
+    # hour 6: 25 * 50/6300 = 0.198 kWh < 1.111 → GAP
+    # hour 7: 25 * 100/6300 = 0.397 kWh < 1.111 → GAP
+    # hour 8: 25 * 400/6300 = 1.587 kWh > 1.111 → covers
+    # gap_hours = 2, result = 2 * 1.111 = 2.222 kWh
+    result = _morning_floor_kwh(config, forecast, expected_consumption, expected_generation)
+    assert 2.0 <= result <= 2.5
 
 
 def test_morning_floor_cloudy_day(tmp_path, config):
     """Cloudy day: solar never covers load, morning floor spans all forecast hours."""
     from src.calculator.engine import _morning_floor_kwh
-    conn = _make_db(tmp_path)
-    _populate_generation(conn, month=4, condition="cloudy",
-                         values=[5.0, 6.0, 4.0, 5.5, 4.5])
     hourly_data = [
         (6, 90, 30),
         (7, 90, 50),
@@ -462,15 +458,12 @@ def test_morning_floor_cloudy_day(tmp_path, config):
         (17, 95, 10),
     ]
     forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
-    expected_consumption = 20.0
-    from src.calculator.engine import solar_day_length
-    kwh_per_solar_hour = 6.0 / solar_day_length(51.4067, date(2025, 4, 3))
-
-    result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
-    # Generation per hour is tiny (kwh_per_solar_hour ~0.44 * 10-20% clear = ~0.04-0.09)
-    # which is well below hourly consumption of 1.11 kWh
-    # All 12 forecast hours from hour 6 onward are gap hours
-    # Floor = 12 * 1.11 = ~13.3 kWh
+    expected_consumption = 20.0  # hourly_consumption = 1.111 kWh
+    expected_generation = 5.0  # cloudy day: low total
+    # total radiation = 900 W/m². Max single-hour share: 130/900 = 0.144
+    # Max hourly gen = 5 * 0.144 = 0.72 kWh — never covers 1.111
+    # All 12 hours are gaps → result = 12 * 1.111 = 13.33 kWh
+    result = _morning_floor_kwh(config, forecast, expected_consumption, expected_generation)
     assert result > 10.0
 
 
@@ -481,16 +474,13 @@ def test_morning_floor_no_forecast_data(tmp_path, config):
         date=date(2026, 4, 15), sunrise=time(6, 0), sunset=time(20, 0),
         hourly=[], condition="sunny", max_temperature_c=15.0
     )
-    result = _morning_floor_kwh(config, forecast, 20.0, 2.5)
+    result = _morning_floor_kwh(config, forecast, 20.0, 30.0)
     assert result == 0.0
 
 
 def test_morning_floor_solar_covers_load_immediately(tmp_path, config):
-    """Solar covers load at first expensive hour — no gap, no floor."""
+    """Strong dawn radiation — first expensive hour already covers load."""
     from src.calculator.engine import _morning_floor_kwh
-    conn = _make_db(tmp_path)
-    _populate_generation(conn, month=6, condition="sunny",
-                         values=[40.0, 42.0, 38.0, 41.0, 39.0])
     hourly_data = [
         (6, 5, 600),
         (7, 5, 700),
@@ -499,15 +489,49 @@ def test_morning_floor_solar_covers_load_immediately(tmp_path, config):
         (10, 5, 900),
     ]
     forecast = _make_forecast_with_radiation(date(2026, 6, 15), hourly_data)
-    expected_consumption = 20.0
-    from src.calculator.engine import solar_day_length
-    kwh_per_solar_hour = 42.0 / solar_day_length(51.4067, date(2025, 6, 1))
-
-    result = _morning_floor_kwh(config, forecast, expected_consumption, kwh_per_solar_hour)
-    # kwh_per_solar_hour ~2.6, at 95% clear = ~2.47, vs hourly consumption 1.11
-    # Solar covers load at hour 6 immediately, gap_hours = 0
-    # Floor = 0 * 1.11 = 0.0
+    expected_consumption = 20.0  # hourly_consumption = 1.111 kWh
+    expected_generation = 30.0
+    # total_radiation = 3850 W/m²
+    # hour 6: 30 * 600/3850 = 4.675 kWh > 1.111 → covers immediately
+    # gap_hours = 0
+    result = _morning_floor_kwh(config, forecast, expected_consumption, expected_generation)
     assert result == 0.0
+
+
+def test_morning_floor_clear_dawn_low_sun(tmp_path, config):
+    """Clear sky but realistic low dawn radiation — must still gap correctly.
+
+    Regression test: previously the calculator used a flat kwh_per_solar_hour and
+    treated hour 6 with 0% cloud as full sun, falsely concluding 'covers load'
+    at dawn even though early-morning generation is small in reality.
+    """
+    from src.calculator.engine import _morning_floor_kwh
+    hourly_data = [
+        # All clear sky (0% cloud) but realistic spring sunrise radiation curve
+        (6, 0, 80),     # just after sunrise — low elevation
+        (7, 0, 250),
+        (8, 0, 450),
+        (9, 0, 600),
+        (10, 0, 750),
+        (11, 0, 850),
+        (12, 0, 900),
+        (13, 0, 850),
+        (14, 0, 750),
+        (15, 0, 600),
+        (16, 0, 400),
+        (17, 0, 200),
+        (18, 0, 80),
+        (19, 0, 20),
+    ]
+    forecast = _make_forecast_with_radiation(date(2026, 4, 15), hourly_data)
+    expected_consumption = 20.0  # hourly_consumption = 1.111 kWh
+    expected_generation = 35.0
+    # total_radiation = 6780 W/m²
+    # hour 6: 35 * 80/6780 = 0.413 kWh < 1.111 → GAP (correctly)
+    # hour 7: 35 * 250/6780 = 1.291 kWh > 1.111 → covers
+    # gap_hours = 1, result = 1.111 kWh
+    result = _morning_floor_kwh(config, forecast, expected_consumption, expected_generation)
+    assert 1.0 <= result <= 1.3
 
 
 # --------------------------------------------------------------------------- #
