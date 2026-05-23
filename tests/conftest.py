@@ -25,7 +25,6 @@ rates:
   cheap_end: "05:30"
 dashboard:
   port: 8099
-manual_override: null
 """
 
 @pytest.fixture

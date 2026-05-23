@@ -61,7 +61,6 @@ Edit `config.yaml`:
 | `rates` | `cheap_start`, `cheap_end` | Your cheap-rate window (e.g. 23:30 to 05:30) |
 | `rates` | `cheap_pence_per_kwh`, `expensive_pence_per_kwh` | Tariff rates for savings calculation |
 | `dashboard` | `port` | Local dashboard port (default 8099) |
-| | `manual_override` | Set to 0-100 to force a specific charge level once, then auto-clears |
 
 ## Usage
 

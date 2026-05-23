@@ -108,15 +108,6 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         logger.warning(f"Failed to backfill actuals for {yesterday}: {e}")
 
 
-def _clear_manual_override(config_path: Path) -> None:
-    import yaml
-    with open(config_path) as f:
-        raw = yaml.safe_load(f)
-    raw["manual_override"] = None
-    with open(config_path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False)
-
-
 def _write_last_updated(path: Path, result: dict, forecast: DayForecast | None) -> None:
     lines = [
         f"# Battery Charge Update",
@@ -182,42 +173,33 @@ def run_nightly(
     except Exception as e:
         logger.warning(f"Failed to read SOC: {e}")
 
-    # Manual override
-    if config.manual_override is not None:
-        charge_level = config.manual_override
-        reason = f"Manual override: {charge_level}%"
+    # Fetch forecast with retry
+    _BACKOFF = (5, 15, 45)
+    for attempt in range(3):
         try:
-            _clear_manual_override(project_root / "config.yaml")
-        except Exception as e:
-            logger.warning(f"Failed to clear manual override: {e}")
-    else:
-        # Fetch forecast with retry
-        _BACKOFF = (5, 15, 45)
-        for attempt in range(3):
-            try:
-                forecast = weather_provider.get_forecast(
-                    config.location.latitude, config.location.longitude,
-                    target_date, config.location.timezone
-                )
-                break
-            except Exception as e:
-                if attempt == 2:
-                    logger.error(f"Weather API failed after 3 retries: {e}")
-                    errors.append(f"Weather API failed: {e}")
-                    forecast = None
-                else:
-                    import time as time_module
-                    time_module.sleep(_BACKOFF[attempt])
-
-        if forecast is None:
-            charge_level = config.battery.fallback_charge_level
-            reason = f"Weather API unavailable — fallback to {charge_level}%"
-        else:
-            calc_result = calculate_charge(
-                config=config, forecast=forecast, conn=conn,
+            forecast = weather_provider.get_forecast(
+                config.location.latitude, config.location.longitude,
+                target_date, config.location.timezone
             )
-            charge_level = calc_result.charge_level
-            reason = calc_result.reason
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"Weather API failed after 3 retries: {e}")
+                errors.append(f"Weather API failed: {e}")
+                forecast = None
+            else:
+                import time as time_module
+                time_module.sleep(_BACKOFF[attempt])
+
+    if forecast is None:
+        charge_level = config.battery.fallback_charge_level
+        reason = f"Weather API unavailable — fallback to {charge_level}%"
+    else:
+        calc_result = calculate_charge(
+            config=config, forecast=forecast, conn=conn,
+        )
+        charge_level = calc_result.charge_level
+        reason = calc_result.reason
 
     # Set on Growatt
     try:
