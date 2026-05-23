@@ -185,3 +185,27 @@ def test_decisions_has_is_manual_column_with_default_zero(tmp_path):
     assert row is not None
     assert row[0] == 0
     conn.close()
+
+
+def test_upsert_decision_stores_is_manual_flag(tmp_path):
+    from src.db.schema import init_db
+    from src.db.queries import upsert_decision, get_decision
+
+    conn = init_db(tmp_path / "test.db")
+    upsert_decision(
+        conn, date(2026, 5, 23),
+        forecast_summary="manual",
+        forecast_detail="[]",
+        charge_level_set=80,
+        adjustment_reason="Manual: set to 80%",
+        current_soc=None,
+        month=5,
+        weather_provider="manual",
+        is_manual=1,
+    )
+    row = get_decision(conn, date(2026, 5, 23))
+    assert row is not None
+    assert row["is_manual"] == 1
+    assert row["charge_level_set"] == 80
+    assert row["adjustment_reason"] == "Manual: set to 80%"
+    conn.close()
