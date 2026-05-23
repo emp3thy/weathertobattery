@@ -42,8 +42,8 @@ def create_app(db_path: Path, config) -> FastAPI:
             "SELECT * FROM actuals ORDER BY date DESC LIMIT 1")
         actual = cursor.fetchone()
         conn.close()
-        return templates.TemplateResponse("overview.html", {
-            "request": request, "decision": decision, "actual": actual
+        return templates.TemplateResponse(request, "overview.html", {
+            "decision": decision, "actual": actual
         })
 
     @app.get("/history", response_class=HTMLResponse)
@@ -55,8 +55,8 @@ def create_app(db_path: Path, config) -> FastAPI:
             "ORDER BY d.date DESC LIMIT 90"
         ).fetchall()
         conn.close()
-        return templates.TemplateResponse("history.html", {
-            "request": request, "decisions": decisions
+        return templates.TemplateResponse(request, "history.html", {
+            "decisions": decisions
         })
 
     @app.get("/accuracy", response_class=HTMLResponse)
@@ -104,8 +104,8 @@ def create_app(db_path: Path, config) -> FastAPI:
                 "exp_battery": round(exp_battery, 1) if exp_battery else None,
             })
         conn.close()
-        return templates.TemplateResponse("accuracy.html", {
-            "request": request, "rows": rows
+        return templates.TemplateResponse(request, "accuracy.html", {
+            "rows": rows
         })
 
     @app.get("/savings", response_class=HTMLResponse)
@@ -163,8 +163,7 @@ def create_app(db_path: Path, config) -> FastAPI:
         chart_no_solar_saving = [round(d["no_solar_saving_pence"] / 100, 2) for d in chart_days]
         chart_actual_cost = [round(d["actual_cost_pence"] / 100, 2) for d in chart_days]
 
-        return templates.TemplateResponse("savings.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "savings.html", {
             "latest": latest,
             "monthly": monthly,
             "all_time": all_time,
@@ -192,8 +191,7 @@ def create_app(db_path: Path, config) -> FastAPI:
         ).fetchall() if _table_exists(conn, "hourly_profiles") else []
 
         conn.close()
-        return templates.TemplateResponse("solar_profile.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "solar_profile.html", {
             "daily": daily,
             "hourly_profile": hourly_profile,
         })
@@ -227,8 +225,8 @@ def create_app(db_path: Path, config) -> FastAPI:
                     "max": round(max(vals), 1),
                 })
         conn.close()
-        return templates.TemplateResponse("generation_stats.html", {
-            "request": request, "rows": rows
+        return templates.TemplateResponse(request, "generation_stats.html", {
+            "rows": rows
         })
 
     def _table_exists(conn, table_name: str) -> bool:
