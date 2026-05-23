@@ -108,15 +108,6 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         logger.warning(f"Failed to backfill actuals for {yesterday}: {e}")
 
 
-def _clear_manual_override(config_path: Path) -> None:
-    import yaml
-    with open(config_path) as f:
-        raw = yaml.safe_load(f)
-    raw["manual_override"] = None
-    with open(config_path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False)
-
-
 def _write_last_updated(path: Path, result: dict, forecast: DayForecast | None) -> None:
     lines = [
         f"# Battery Charge Update",
@@ -163,48 +154,52 @@ def run_nightly(
     # Backfill yesterday's actuals
     _backfill_actuals(conn, growatt_client, config, target_date)
 
+    # Skip if a manual decision is already in place for the target date.
+    existing = get_decision(conn, target_date)
+    if existing and existing["is_manual"] == 1:
+        logger.info(f"Skipping {target_date} — manual setting already in place")
+        return {
+            "success": True,
+            "charge_level": existing["charge_level_set"],
+            "reason": f"Skipped — manual already set ({existing['charge_level_set']}%)",
+            "target_date": str(target_date),
+            "timestamp": timestamp,
+            "errors": [],
+        }
+
     # Read current SOC
     try:
         current_soc = growatt_client.get_current_soc()
     except Exception as e:
         logger.warning(f"Failed to read SOC: {e}")
 
-    # Manual override
-    if config.manual_override is not None:
-        charge_level = config.manual_override
-        reason = f"Manual override: {charge_level}%"
+    # Fetch forecast with retry
+    _BACKOFF = (5, 15, 45)
+    for attempt in range(3):
         try:
-            _clear_manual_override(project_root / "config.yaml")
-        except Exception as e:
-            logger.warning(f"Failed to clear manual override: {e}")
-    else:
-        # Fetch forecast with retry
-        _BACKOFF = (5, 15, 45)
-        for attempt in range(3):
-            try:
-                forecast = weather_provider.get_forecast(
-                    config.location.latitude, config.location.longitude,
-                    target_date, config.location.timezone
-                )
-                break
-            except Exception as e:
-                if attempt == 2:
-                    logger.error(f"Weather API failed after 3 retries: {e}")
-                    errors.append(f"Weather API failed: {e}")
-                    forecast = None
-                else:
-                    import time as time_module
-                    time_module.sleep(_BACKOFF[attempt])
-
-        if forecast is None:
-            charge_level = config.battery.fallback_charge_level
-            reason = f"Weather API unavailable — fallback to {charge_level}%"
-        else:
-            calc_result = calculate_charge(
-                config=config, forecast=forecast, conn=conn,
+            forecast = weather_provider.get_forecast(
+                config.location.latitude, config.location.longitude,
+                target_date, config.location.timezone
             )
-            charge_level = calc_result.charge_level
-            reason = calc_result.reason
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"Weather API failed after 3 retries: {e}")
+                errors.append(f"Weather API failed: {e}")
+                forecast = None
+            else:
+                import time as time_module
+                time_module.sleep(_BACKOFF[attempt])
+
+    if forecast is None:
+        charge_level = config.battery.fallback_charge_level
+        reason = f"Weather API unavailable — fallback to {charge_level}%"
+    else:
+        calc_result = calculate_charge(
+            config=config, forecast=forecast, conn=conn,
+        )
+        charge_level = calc_result.charge_level
+        reason = calc_result.reason
 
     # Set on Growatt
     try:
@@ -240,4 +235,59 @@ def run_nightly(
     }
 
     _write_last_updated(project_root, result, forecast)
+    return result
+
+
+def run_manual(
+    config: Config, conn, growatt_client: GrowattClient,
+    level: int, target_date: date, project_root: Path,
+) -> dict:
+    del config  # accepted for parity with run_nightly / set-battery skill; not yet used
+    timestamp = datetime.now().isoformat()
+    errors = []
+
+    # Unlike run_nightly, we early-return on hardware failure here: the DB write
+    # is only meaningful once the battery is confirmed set. Manual sets must
+    # never leave a false record of a hardware action.
+    try:
+        growatt_client.set_charge_soc(level)
+    except Exception as e:
+        logger.error(f"Failed to set charge: {e}")
+        errors.append(f"Failed to set charge: {e}")
+        return {
+            "success": False,
+            "charge_level": None,
+            "reason": f"Manual set to {level}% failed",
+            "target_date": str(target_date),
+            "timestamp": timestamp,
+            "errors": errors,
+        }
+
+    reason = f"Manual: set to {level}%"
+    try:
+        upsert_decision(
+            conn, target_date,
+            forecast_summary="manual",
+            forecast_detail="[]",
+            charge_level_set=level,
+            adjustment_reason=reason,
+            current_soc=None,
+            month=target_date.month,
+            weather_provider="manual",
+            is_manual=1,
+        )
+    except Exception as e:
+        logger.error(f"Failed to log decision: {e}")
+        errors.append(f"Failed to log decision: {e}")
+
+    result = {
+        "success": len(errors) == 0,
+        "charge_level": level,
+        "reason": reason,
+        "target_date": str(target_date),
+        "timestamp": timestamp,
+        "errors": errors,
+    }
+
+    _write_last_updated(project_root, result, forecast=None)
     return result

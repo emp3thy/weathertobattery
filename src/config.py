@@ -78,7 +78,6 @@ class Config:
     weather: WeatherConfig
     rates: RatesConfig
     dashboard: DashboardConfig
-    manual_override: int | None
 
 
 def _validate(cfg: Config) -> None:
@@ -86,8 +85,6 @@ def _validate(cfg: Config) -> None:
         raise ConfigValidationError("total_capacity_kwh must be positive")
     if not (0 < cfg.battery.usable_fraction <= 1):
         raise ConfigValidationError("usable_fraction must be between 0 and 1")
-    if cfg.manual_override is not None and not (0 <= cfg.manual_override <= 100):
-        raise ConfigValidationError("manual_override must be 0-100 or null")
     if not (0 <= cfg.battery.min_soc_pct < 100):
         raise ConfigValidationError("min_soc_pct must be between 0 and 99")
 
@@ -118,7 +115,6 @@ def load_config(path: Path) -> Config:
         weather=WeatherConfig(**raw["weather"]),
         rates=RatesConfig(**raw["rates"]),
         dashboard=DashboardConfig(**raw["dashboard"]),
-        manual_override=raw.get("manual_override"),
     )
     _validate(cfg)
     return cfg

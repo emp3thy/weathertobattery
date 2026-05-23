@@ -45,7 +45,7 @@ def _populate_expensive_consumption(conn, values):
 
 
 # --------------------------------------------------------------------------- #
-# Test 1: Manual override
+# Test 1: Signature hygiene
 # --------------------------------------------------------------------------- #
 
 def test_calculate_charge_has_no_current_soc_param(tmp_path, config):
@@ -55,21 +55,6 @@ def test_calculate_charge_has_no_current_soc_param(tmp_path, config):
     from src.calculator.engine import calculate_charge
     params = inspect.signature(calculate_charge).parameters
     assert "current_soc" not in params
-
-
-def test_manual_override(tmp_path, config):
-    from src.calculator.engine import calculate_charge
-    from src.config import load_config
-    from tests.conftest import VALID_CONFIG_YAML
-    config_file = tmp_path / "config.yaml"
-    config_file.write_text(VALID_CONFIG_YAML.replace("manual_override: null", "manual_override: 85"))
-    override_config = load_config(config_file)
-    conn = _make_db(tmp_path)
-    forecast = _make_forecast(date(2026, 6, 15))
-    result = calculate_charge(config=override_config, forecast=forecast,
-                              conn=conn)
-    assert result.charge_level == 85
-    assert "manual" in result.reason.lower()
 
 
 # --------------------------------------------------------------------------- #

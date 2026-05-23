@@ -5,12 +5,13 @@ from datetime import date
 def upsert_decision(conn: sqlite3.Connection, dt: date, forecast_summary: str,
                     forecast_detail: str, charge_level_set: int,
                     adjustment_reason: str | None, current_soc: int | None,
-                    month: int, weather_provider: str) -> None:
+                    month: int, weather_provider: str,
+                    is_manual: int = 0) -> None:
     conn.execute("""
         INSERT INTO decisions (date, forecast_summary, forecast_detail,
             charge_level_set, adjustment_reason, current_soc_at_decision, month,
-            weather_provider_used)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            weather_provider_used, is_manual)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(date) DO UPDATE SET
             forecast_summary=excluded.forecast_summary,
             forecast_detail=excluded.forecast_detail,
@@ -18,9 +19,10 @@ def upsert_decision(conn: sqlite3.Connection, dt: date, forecast_summary: str,
             adjustment_reason=excluded.adjustment_reason,
             current_soc_at_decision=excluded.current_soc_at_decision,
             month=excluded.month,
-            weather_provider_used=excluded.weather_provider_used
+            weather_provider_used=excluded.weather_provider_used,
+            is_manual=excluded.is_manual
     """, (str(dt), forecast_summary, forecast_detail, charge_level_set,
-          adjustment_reason, current_soc, month, weather_provider))
+          adjustment_reason, current_soc, month, weather_provider, is_manual))
     conn.commit()
 
 

@@ -26,14 +26,12 @@ rates:
   cheap_end: "05:30"
 dashboard:
   port: 8099
-manual_override: null
 """)
     from src.config import load_config
     cfg = load_config(config_file)
     assert cfg.location.latitude == 51.4067
     assert cfg.growatt.username == "test_user"
     assert cfg.battery.usable_capacity_kwh == pytest.approx(11.97)
-    assert cfg.manual_override is None
 
 
 def test_config_loads_min_soc_pct(tmp_path):
@@ -63,7 +61,6 @@ rates:
   cheap_end: "05:30"
 dashboard:
   port: 8099
-manual_override: null
 """)
     from src.config import load_config
     cfg = load_config(config_file)
@@ -97,7 +94,6 @@ rates:
   cheap_end: "05:30"
 dashboard:
   port: 8099
-manual_override: null
 """)
     from src.config import load_config
     cfg = load_config(config_file)

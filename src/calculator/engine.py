@@ -172,13 +172,6 @@ def calculate_charge(
     forecast: DayForecast,
     conn: sqlite3.Connection,
 ) -> ChargeResult:
-    # Manual override
-    if config.manual_override is not None:
-        return ChargeResult(
-            charge_level=config.manual_override,
-            reason="Manual override applied",
-        )
-
     month = forecast.date.month
 
     cloud_floor = config.battery.cloud_floor_pct / 100
