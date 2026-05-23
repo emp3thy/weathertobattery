@@ -135,13 +135,13 @@ def test_run_manual_sets_charge_and_logs_decision(tmp_path, config):
 
     target = date(2026, 5, 23)
     result = run_manual(
-        config=config, conn=conn, growatt_client=mock_growatt,
-        level=80, target_date=target, project_root=tmp_path,
+        config, conn, mock_growatt,
+        80, target, tmp_path,
     )
 
     assert result["success"] is True
     assert result["charge_level"] == 80
-    assert result["target_date"] == "2026-05-23"
+    assert result["target_date"] == str(target)
 
     mock_growatt.set_charge_soc.assert_called_once_with(80)
     mock_growatt.get_hourly_data.assert_not_called()

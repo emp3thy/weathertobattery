@@ -244,7 +244,7 @@ def run_nightly(
 
 
 def run_manual(
-    config: Config, conn, growatt_client: GrowattClient,
+    _config: Config, conn, growatt_client: GrowattClient,
     level: int, target_date: date, project_root: Path,
 ) -> dict:
     timestamp = datetime.now().isoformat()
