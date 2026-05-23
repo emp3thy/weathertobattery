@@ -163,6 +163,19 @@ def run_nightly(
     # Backfill yesterday's actuals
     _backfill_actuals(conn, growatt_client, config, target_date)
 
+    # Skip if a manual decision is already in place for the target date.
+    existing = get_decision(conn, target_date)
+    if existing and existing["is_manual"] == 1:
+        logger.info(f"Skipping {target_date} — manual setting already in place")
+        return {
+            "success": True,
+            "charge_level": existing["charge_level_set"],
+            "reason": f"Skipped — manual already set ({existing['charge_level_set']}%)",
+            "target_date": str(target_date),
+            "timestamp": timestamp,
+            "errors": [],
+        }
+
     # Read current SOC
     try:
         current_soc = growatt_client.get_current_soc()

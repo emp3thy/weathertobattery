@@ -213,3 +213,47 @@ def test_run_manual_second_call_overwrites_first(tmp_path, config):
     assert decision["adjustment_reason"] == "Manual: set to 90%"
     assert mock_growatt.set_charge_soc.call_args_list == [call(50), call(90)]
     conn.close()
+
+
+def test_nightly_skips_when_manual_already_set(tmp_path, config):
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+    from src.db.queries import upsert_decision
+    from unittest.mock import MagicMock
+    from datetime import date
+
+    conn = init_db(tmp_path / "test.db")
+    target = date(2026, 5, 23)
+    upsert_decision(
+        conn, target,
+        forecast_summary="manual",
+        forecast_detail="[]",
+        charge_level_set=75,
+        adjustment_reason="Manual: set to 75%",
+        current_soc=None,
+        month=5,
+        weather_provider="manual",
+        is_manual=1,
+    )
+
+    mock_weather = MagicMock()
+    mock_growatt = MagicMock()
+    # The actuals table is empty for this tmp_path DB, so _backfill_actuals
+    # WILL invoke get_hourly_data(yesterday). Return {} so the backfill loop
+    # iterates over nothing and the test stays focused on the skip behaviour.
+    mock_growatt.get_hourly_data.return_value = {}
+    mock_growatt.get_current_soc.return_value = 30
+
+    result = run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path,
+    )
+
+    assert result["success"] is True
+    assert result["charge_level"] == 75
+    assert "skipped" in result["reason"].lower()
+    mock_weather.get_forecast.assert_not_called()
+    mock_growatt.set_charge_soc.assert_not_called()
+    mock_growatt.get_hourly_data.assert_called()
+    conn.close()
