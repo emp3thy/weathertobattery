@@ -120,3 +120,41 @@ def test_orchestrator_weather_retry_backoff_does_not_indexerror(tmp_path, config
     )
     assert result["success"] is True
     assert call_count["n"] == 3
+
+
+def test_run_manual_sets_charge_and_logs_decision(tmp_path, config):
+    from src.orchestrator import run_manual
+    from src.db.schema import init_db
+    from src.db.queries import get_decision
+    from unittest.mock import MagicMock
+    from datetime import date
+
+    conn = init_db(tmp_path / "test.db")
+    mock_growatt = MagicMock()
+    mock_growatt.set_charge_soc.return_value = True
+
+    target = date(2026, 5, 23)
+    result = run_manual(
+        config=config, conn=conn, growatt_client=mock_growatt,
+        level=80, target_date=target, project_root=tmp_path,
+    )
+
+    assert result["success"] is True
+    assert result["charge_level"] == 80
+    assert result["target_date"] == "2026-05-23"
+
+    mock_growatt.set_charge_soc.assert_called_once_with(80)
+    mock_growatt.get_hourly_data.assert_not_called()
+    mock_growatt.get_current_soc.assert_not_called()
+
+    decision = get_decision(conn, target)
+    assert decision is not None
+    assert decision["charge_level_set"] == 80
+    assert decision["is_manual"] == 1
+    assert decision["adjustment_reason"] == "Manual: set to 80%"
+    assert decision["forecast_summary"] == "manual"
+
+    last_updated = (tmp_path / "last_updated.md").read_text()
+    assert "**Charge level set:** 80%" in last_updated
+    assert "Manual: set to 80%" in last_updated
+    conn.close()

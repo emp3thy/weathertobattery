@@ -241,3 +241,38 @@ def run_nightly(
 
     _write_last_updated(project_root, result, forecast)
     return result
+
+
+def run_manual(
+    config: Config, conn, growatt_client: GrowattClient,
+    level: int, target_date: date, project_root: Path,
+) -> dict:
+    timestamp = datetime.now().isoformat()
+    errors = []
+
+    growatt_client.set_charge_soc(level)
+
+    reason = f"Manual: set to {level}%"
+    upsert_decision(
+        conn, target_date,
+        forecast_summary="manual",
+        forecast_detail="[]",
+        charge_level_set=level,
+        adjustment_reason=reason,
+        current_soc=None,
+        month=target_date.month,
+        weather_provider="manual",
+        is_manual=1,
+    )
+
+    result = {
+        "success": True,
+        "charge_level": level,
+        "reason": reason,
+        "target_date": str(target_date),
+        "timestamp": timestamp,
+        "errors": errors,
+    }
+
+    _write_last_updated(project_root, result, forecast=None)
+    return result
