@@ -37,6 +37,6 @@ print(result)
 
 3. Read `last_updated.md` and summarise what happened to the user in plain language.
 
-## Override
+## Manual override
 
-If the user specifies a charge level (e.g., "charge battery to 80%"), set `manual_override: 80` in `config.yaml` before running, then clear it after.
+For a direct "set the battery to N%" request, use the `set-battery` skill instead.
