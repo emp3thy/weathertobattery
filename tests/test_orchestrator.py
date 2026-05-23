@@ -189,3 +189,27 @@ def test_run_manual_hardware_failure_does_not_write_db(tmp_path, config):
     assert get_decision(conn, target) is None
     assert (tmp_path / "last_updated.md").read_text() == sentinel
     conn.close()
+
+
+def test_run_manual_second_call_overwrites_first(tmp_path, config):
+    from src.orchestrator import run_manual
+    from src.db.schema import init_db
+    from src.db.queries import get_decision
+    from unittest.mock import MagicMock
+    from datetime import date
+    from unittest.mock import call
+
+    conn = init_db(tmp_path / "test.db")
+    mock_growatt = MagicMock()
+    target = date(2026, 5, 23)
+
+    run_manual(config, conn, mock_growatt, 50, target, tmp_path)
+    run_manual(config, conn, mock_growatt, 90, target, tmp_path)
+
+    decision = get_decision(conn, target)
+    assert decision is not None
+    assert decision["charge_level_set"] == 90
+    assert decision["is_manual"] == 1
+    assert decision["adjustment_reason"] == "Manual: set to 90%"
+    assert mock_growatt.set_charge_soc.call_args_list == [call(50), call(90)]
+    conn.close()
