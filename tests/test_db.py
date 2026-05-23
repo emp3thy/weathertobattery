@@ -37,6 +37,7 @@ def test_upsert_decision(tmp_path):
     upsert_decision(conn, date(2026, 3, 25), "cloudy", "{}", 75,
                     "revised", 10, 3, "open_meteo")
     row = get_decision(conn, date(2026, 3, 25))
+    assert row is not None
     assert row["charge_level_set"] == 75
     assert row["forecast_summary"] == "cloudy"
     assert row["adjustment_reason"] == "revised"
@@ -50,6 +51,7 @@ def test_insert_and_get_actuals(tmp_path):
     insert_actuals(conn, date(2026, 3, 25), 20.5, 25.0, 5.0, 2.0,
                    "10:00", 15, 95)
     row = get_actuals(conn, date(2026, 3, 25))
+    assert row is not None
     assert row["total_solar_generation_kwh"] == 20.5
     assert row["grid_import_kwh"] == 5.0
     conn.close()
@@ -120,6 +122,7 @@ def test_insert_actuals_with_new_params(tmp_path):
                    weather_condition="sunny",
                    expensive_consumption_kwh=3.5)
     row = get_actuals(conn, date(2026, 3, 1))
+    assert row is not None
     assert row["weather_condition"] == "sunny"
     assert row["expensive_consumption_kwh"] == 3.5
     conn.close()
@@ -133,6 +136,7 @@ def test_insert_actuals_new_params_default_none(tmp_path):
     insert_actuals(conn, date(2026, 3, 1), 20.0, 25.0, 5.0, 2.0,
                    "10:00", 15, 95)
     row = get_actuals(conn, date(2026, 3, 1))
+    assert row is not None
     assert row["weather_condition"] is None
     assert row["expensive_consumption_kwh"] is None
     conn.close()
