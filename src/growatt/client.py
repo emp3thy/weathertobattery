@@ -2,7 +2,10 @@ import growattServer
 import logging
 import time as time_module
 from datetime import date
+from typing import Callable, TypeVar, cast
 from ..config import GrowattConfig, RatesConfig
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,8 @@ class GrowattClient:
         self.logged_in = True
         logger.info("Growatt login successful")
 
-    def _retry(self, func, retries=3, backoff=(5, 15, 45)):
+    def _retry(self, func: Callable[[], T], retries: int = 3,
+               backoff: tuple[int, ...] = (5, 15, 45)) -> T:
         for attempt in range(retries):
             try:
                 return func()
@@ -42,25 +46,26 @@ class GrowattClient:
                 wait = backoff[attempt] if attempt < len(backoff) else backoff[-1]
                 logger.warning(f"Attempt {attempt+1} failed: {e}. Retrying in {wait}s")
                 time_module.sleep(wait)
+        raise RuntimeError("unreachable")  # loop exits only via return or raise above
 
     def get_hourly_data(self, target_date: date) -> dict:
         """Get 5-minute interval data for a day.
         Returns dict of time_str -> {ppv, sysOut, userLoad, pacToUser}
         where values are strings. 288 entries per full day.
         """
-        def _do():
+        def _do() -> dict:
             raw = self._api.dashboard_data(
                 self.config.plant_id, growattServer.Timespan.hour, target_date
             )
-            return raw.get("chartData", {})
+            return cast(dict, raw.get("chartData", {}))  # growattServer is untyped
         return self._retry(_do)
 
     def get_current_soc(self) -> int:
-        def _do():
+        def _do() -> int:
             devices = self._api.device_list(self.config.plant_id)
             for dev in devices:
                 if dev.get("deviceSn") == self.config.device_sn:
-                    cap_str = dev.get("capacity", "0%").replace("%", "")
+                    cap_str = cast(str, dev.get("capacity", "0%")).replace("%", "")
                     return int(cap_str)
             raise GrowattError(f"Device {self.config.device_sn} not found")
         return self._retry(_do)
@@ -87,7 +92,7 @@ class GrowattClient:
         def _fmt(n: int) -> str:
             return f"{n:02d}"
 
-        def _do_set():
+        def _do_set() -> bool:
             resp = self._api.session.post(
                 f"{self.config.server_url}tcpSet.do",
                 data={
