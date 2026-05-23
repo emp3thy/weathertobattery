@@ -251,6 +251,9 @@ def run_manual(
     timestamp = datetime.now().isoformat()
     errors = []
 
+    # Unlike run_nightly, we early-return on hardware failure here: the DB write
+    # is only meaningful once the battery is confirmed set. Manual sets must
+    # never leave a false record of a hardware action.
     try:
         growatt_client.set_charge_soc(level)
     except Exception as e:

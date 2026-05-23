@@ -183,6 +183,7 @@ def test_run_manual_hardware_failure_does_not_write_db(tmp_path, config):
     )
 
     assert result["success"] is False
+    assert result["charge_level"] is None
     assert any("boom" in e for e in result["errors"])
 
     assert get_decision(conn, target) is None
