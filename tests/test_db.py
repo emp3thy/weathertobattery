@@ -159,3 +159,30 @@ def test_get_recent_expensive_consumption(tmp_path):
     assert len(result3) == 3
     assert result3[0] == 5.0
     conn.close()
+
+
+def test_decisions_has_is_manual_column_with_default_zero(tmp_path):
+    from src.db.schema import init_db
+    from src.db.queries import upsert_decision
+    from datetime import date
+
+    conn = init_db(tmp_path / "test.db")
+    # Insert a row using the *existing* signature (no is_manual parameter yet).
+    # The column must exist and default to 0.
+    upsert_decision(
+        conn, date(2026, 5, 23),
+        forecast_summary="sunny",
+        forecast_detail="[]",
+        charge_level_set=50,
+        adjustment_reason="test",
+        current_soc=20,
+        month=5,
+        weather_provider="open_meteo",
+    )
+    row = conn.execute(
+        "SELECT is_manual FROM decisions WHERE date = ?",
+        ("2026-05-23",),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 0
+    conn.close()

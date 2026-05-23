@@ -51,12 +51,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_battery_discharge_kwh REAL")
     # Drop legacy adjustments table (never written to after feedback-loop removal)
     conn.execute("DROP TABLE IF EXISTS adjustments")
-    cursor = conn.execute("PRAGMA table_info(decisions)")
-    decisions_cols = {row[1] for row in cursor.fetchall()}
-    if "feedback_adjustment" in decisions_cols:
-        conn.execute("ALTER TABLE decisions DROP COLUMN feedback_adjustment")
-    if "base_charge_level" in decisions_cols:
-        conn.execute("ALTER TABLE decisions DROP COLUMN base_charge_level")
+    # Only check decisions table if it exists
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='decisions'")
+    if cursor.fetchone() is not None:
+        cursor = conn.execute("PRAGMA table_info(decisions)")
+        decisions_cols = {row[1] for row in cursor.fetchall()}
+        if "feedback_adjustment" in decisions_cols:
+            conn.execute("ALTER TABLE decisions DROP COLUMN feedback_adjustment")
+        if "base_charge_level" in decisions_cols:
+            conn.execute("ALTER TABLE decisions DROP COLUMN base_charge_level")
+        if "is_manual" not in decisions_cols:
+            conn.execute(
+                "ALTER TABLE decisions ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0"
+            )
     conn.commit()
 
 
