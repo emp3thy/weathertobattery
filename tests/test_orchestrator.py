@@ -158,3 +158,33 @@ def test_run_manual_sets_charge_and_logs_decision(tmp_path, config):
     assert "**Charge level set:** 80%" in last_updated
     assert "Manual: set to 80%" in last_updated
     conn.close()
+
+
+def test_run_manual_hardware_failure_does_not_write_db(tmp_path, config):
+    from src.orchestrator import run_manual
+    from src.db.schema import init_db
+    from src.db.queries import get_decision
+    from src.growatt.client import GrowattError
+    from unittest.mock import MagicMock
+    from datetime import date
+
+    conn = init_db(tmp_path / "test.db")
+    # Pre-write last_updated.md so we can detect whether it was overwritten.
+    sentinel = "SENTINEL — must not be overwritten on failure\n"
+    (tmp_path / "last_updated.md").write_text(sentinel)
+
+    mock_growatt = MagicMock()
+    mock_growatt.set_charge_soc.side_effect = GrowattError("boom")
+
+    target = date(2026, 5, 23)
+    result = run_manual(
+        config, conn, mock_growatt,
+        80, target, tmp_path,
+    )
+
+    assert result["success"] is False
+    assert any("boom" in e for e in result["errors"])
+
+    assert get_decision(conn, target) is None
+    assert (tmp_path / "last_updated.md").read_text() == sentinel
+    conn.close()

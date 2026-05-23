@@ -251,23 +251,39 @@ def run_manual(
     timestamp = datetime.now().isoformat()
     errors = []
 
-    growatt_client.set_charge_soc(level)
+    try:
+        growatt_client.set_charge_soc(level)
+    except Exception as e:
+        logger.error(f"Failed to set charge: {e}")
+        errors.append(f"Failed to set charge: {e}")
+        return {
+            "success": False,
+            "charge_level": None,
+            "reason": f"Manual set to {level}% failed",
+            "target_date": str(target_date),
+            "timestamp": timestamp,
+            "errors": errors,
+        }
 
     reason = f"Manual: set to {level}%"
-    upsert_decision(
-        conn, target_date,
-        forecast_summary="manual",
-        forecast_detail="[]",
-        charge_level_set=level,
-        adjustment_reason=reason,
-        current_soc=None,
-        month=target_date.month,
-        weather_provider="manual",
-        is_manual=1,
-    )
+    try:
+        upsert_decision(
+            conn, target_date,
+            forecast_summary="manual",
+            forecast_detail="[]",
+            charge_level_set=level,
+            adjustment_reason=reason,
+            current_soc=None,
+            month=target_date.month,
+            weather_provider="manual",
+            is_manual=1,
+        )
+    except Exception as e:
+        logger.error(f"Failed to log decision: {e}")
+        errors.append(f"Failed to log decision: {e}")
 
     result = {
-        "success": True,
+        "success": len(errors) == 0,
         "charge_level": level,
         "reason": reason,
         "target_date": str(target_date),
