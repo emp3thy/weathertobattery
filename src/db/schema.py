@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     adjustment_reason TEXT,
     current_soc_at_decision INTEGER,
     month INTEGER NOT NULL,
-    weather_provider_used TEXT NOT NULL
+    weather_provider_used TEXT NOT NULL,
+    is_manual INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS actuals (
@@ -51,7 +52,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE actuals ADD COLUMN expensive_battery_discharge_kwh REAL")
     # Drop legacy adjustments table (never written to after feedback-loop removal)
     conn.execute("DROP TABLE IF EXISTS adjustments")
-    # Only check decisions table if it exists
+    # decisions table may not exist in legacy DBs that predate it; guard avoids ALTER on missing table
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='decisions'")
     if cursor.fetchone() is not None:
         cursor = conn.execute("PRAGMA table_info(decisions)")

@@ -164,7 +164,6 @@ def test_get_recent_expensive_consumption(tmp_path):
 def test_decisions_has_is_manual_column_with_default_zero(tmp_path):
     from src.db.schema import init_db
     from src.db.queries import upsert_decision
-    from datetime import date
 
     conn = init_db(tmp_path / "test.db")
     # Insert a row using the *existing* signature (no is_manual parameter yet).
