@@ -244,9 +244,10 @@ def run_nightly(
 
 
 def run_manual(
-    _config: Config, conn, growatt_client: GrowattClient,
+    config: Config, conn, growatt_client: GrowattClient,
     level: int, target_date: date, project_root: Path,
 ) -> dict:
+    del config  # accepted for parity with run_nightly / set-battery skill; not yet used
     timestamp = datetime.now().isoformat()
     errors = []
 
