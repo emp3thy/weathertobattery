@@ -1,7 +1,7 @@
 import growattServer
 import logging
 import time as time_module
-from datetime import date
+from datetime import date, datetime, time
 from typing import Callable, TypeVar, cast
 from ..config import GrowattConfig, RatesConfig
 
@@ -55,7 +55,8 @@ class GrowattClient:
         """
         def _do() -> dict:
             raw = self._api.dashboard_data(
-                self.config.plant_id, growattServer.Timespan.hour, target_date
+                self.config.plant_id, growattServer.Timespan.hour,
+                datetime.combine(target_date, time.min),
             )
             return cast(dict, raw.get("chartData", {}))  # growattServer is untyped
         return self._retry(_do)

@@ -281,7 +281,9 @@ def test_backfill_stores_readings_for_day_with_existing_totals(tmp_path, config)
     insert_actuals(conn, day, 35.0, 25.0, 3.0, 5.0, "12:00", 20, 95)
     assert backfill_actuals_for_day(conn, _growatt_with(_two_readings()), config, day) is True
     assert has_readings(conn, day) is True
-    assert get_actuals(conn, day)["total_solar_generation_kwh"] == 35.0  # totals untouched
+    row = get_actuals(conn, day)
+    assert row is not None
+    assert row["total_solar_generation_kwh"] == 35.0  # totals untouched
     conn.close()
 
 
@@ -293,7 +295,9 @@ def test_backfill_stores_totals_and_readings_for_new_day(tmp_path, config):
     day = date(2026, 7, 10)
     assert backfill_actuals_for_day(conn, _growatt_with(_two_readings()), config, day) is True
     assert has_readings(conn, day) is True
-    assert get_actuals(conn, day)["total_solar_generation_kwh"] == pytest.approx(1.0 / 12)
+    row = get_actuals(conn, day)
+    assert row is not None
+    assert row["total_solar_generation_kwh"] == pytest.approx(1.0 / 12)
     conn.close()
 
 
