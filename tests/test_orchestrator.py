@@ -322,3 +322,29 @@ def test_backfill_raises_and_stores_nothing_when_no_readings(tmp_path, config):
     assert has_readings(conn, day) is False
     assert get_actuals(conn, day) is None
     conn.close()
+
+
+def test_nightly_backfills_the_day_before_target_minus_one(tmp_path, config):
+    """Nightly runs at 22:00 for tomorrow: target-1 is today (incomplete), so
+    the last complete day to backfill is target-2."""
+    from datetime import timedelta
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+
+    conn = init_db(tmp_path / "test.db")
+    target = date(2026, 7, 15)
+
+    mock_weather = MagicMock()
+    mock_weather.get_forecast.return_value = _make_forecast(target)
+    mock_growatt = MagicMock()
+    mock_growatt.get_hourly_data.return_value = {}
+    mock_growatt.get_current_soc.return_value = 30
+
+    run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path,
+    )
+
+    mock_growatt.get_hourly_data.assert_called_once_with(target - timedelta(days=2))
+    conn.close()

@@ -36,8 +36,8 @@ def backfill_actuals_for_day(conn, growatt_client: GrowattClient, config: Config
     """Fetch one day's 5-minute data from Growatt and store its actuals.
 
     Returns False if the day already has both daily totals and readings.
-    Raises if Growatt returns no readings for the day (e.g. beyond its retention window) so that
-    callers never store a row of zeros.
+    Raises if Growatt returns no readings for the day (e.g. beyond its retention
+    window) so that callers never store a row of zeros.
     """
     existing = get_actuals(conn, day)
     readings_present = has_readings(conn, day)
@@ -111,7 +111,7 @@ def backfill_actuals_for_day(conn, growatt_client: GrowattClient, config: Config
         expensive_solar_kwh = expensive_solar / 12
         expensive_battery_discharge_kwh = expensive_battery_discharge / 12
 
-        # Get weather condition from the decision record for day
+        # Get weather condition from the decision record for this day
         decision = get_decision(conn, day)
         weather_condition = decision["forecast_summary"] if decision else None
 
@@ -177,7 +177,7 @@ def run_nightly(
     forecast = None
     current_soc = None
 
-    # Backfill day's actuals
+    # Backfill the last complete day's actuals
     _backfill_actuals(conn, growatt_client, config, target_date)
 
     # Skip if a manual decision is already in place for the target date.

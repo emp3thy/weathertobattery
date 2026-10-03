@@ -142,5 +142,6 @@ def insert_readings(conn: sqlite3.Connection, dt: date, hourly: dict) -> None:
 
 
 def has_readings(conn: sqlite3.Connection, dt: date) -> bool:
+    """True if any row exists for the date; a partial day is never topped up later."""
     cursor = conn.execute("SELECT 1 FROM readings WHERE date = ? LIMIT 1", (str(dt),))
     return cursor.fetchone() is not None
