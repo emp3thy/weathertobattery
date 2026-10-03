@@ -213,3 +213,11 @@ def test_upsert_decision_stores_is_manual_flag(tmp_path):
     assert row["charge_level_set"] == 80
     assert row["adjustment_reason"] == "Manual: set to 80%"
     conn.close()
+
+
+def test_init_db_creates_readings_table(tmp_path):
+    from src.db.schema import init_db
+    conn = init_db(tmp_path / "test.db")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(readings)").fetchall()}
+    assert columns == {"date", "time", "ppv_kw", "sys_out_kw", "user_load_kw", "pac_to_user_kw"}
+    conn.close()
