@@ -264,7 +264,7 @@ git commit -m "feat: backfill stores raw readings alongside daily totals"
 
 ### Task 4: Populate readings for existing history
 
-**Confidence:** 85%. Depends on the live Growatt API: 91 calls succeeded earlier today, but retention moves daily, so the oldest day may have expired and the `no data` count may differ from the expected line. The daily-totals check is the real pass criterion.
+**Confidence:** 92%. Depends on the live Growatt API, which served all 91 days when probed on 2026-10-03, and the database is rebuildable from Growatt in minutes so a bad run costs nothing. The residual risk is retention expiring the oldest day before this runs, so run it the same day as Task 3 and judge by Step 3's tolerant check rather than the exact script output.
 
 **Files:**
 - None modified. Runs `scripts/backfill_actuals.py` against `data/battery.db`.
@@ -292,6 +292,8 @@ Run:
 python -c "import sqlite3; c=sqlite3.connect('data/battery.db'); print(c.execute('select count(distinct date), min(date), max(date), count(*) from readings').fetchone()); print(c.execute('select count(*) from actuals a where not exists (select 1 from readings r where r.date=a.date)').fetchone()); print(c.execute('select count(*), round(sum(total_solar_generation_kwh),3), round(sum(expensive_consumption_kwh),3) from actuals').fetchone())"
 ```
 Expected: first line `(91, '2026-07-04', '2026-10-02', N)` with N between 26000 and 26208; second line `(0,)`; third line identical to Step 1.
+
+If Growatt has expired the oldest day since 2026-10-03, the first line's count and min date shift by that many days and the second line equals the number of expired days. That is a pass provided the expired days are the oldest ones and the third line is unchanged.
 
 - [ ] **Step 4: Confirm a second run is a no-op**
 
