@@ -8,7 +8,8 @@ from .weather.interface import WeatherProvider, DayForecast
 from .growatt.client import GrowattClient
 from .calculator.engine import calculate_charge
 from .db.queries import (
-    upsert_decision, get_decision, get_actuals, insert_actuals
+    upsert_decision, get_decision, get_actuals, insert_actuals,
+    insert_readings, has_readings,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,98 +35,102 @@ def backfill_actuals_for_day(conn, growatt_client: GrowattClient, config: Config
                              day: date) -> bool:
     """Fetch one day's 5-minute data from Growatt and store its actuals.
 
-    Returns False if the day already has a row. Raises if Growatt returns
-    no readings for the day (e.g. beyond its retention window) so that
+    Returns False if the day already has both daily totals and readings.
+    Raises if Growatt returns no readings for the day (e.g. beyond its retention window) so that
     callers never store a row of zeros.
     """
-    yesterday = day
-    existing = get_actuals(conn, yesterday)
-    if existing:
+    existing = get_actuals(conn, day)
+    readings_present = has_readings(conn, day)
+    if existing and readings_present:
         return False
 
-    hourly = growatt_client.get_hourly_data(yesterday)
+    hourly = growatt_client.get_hourly_data(day)
     if not any(isinstance(v, dict) for v in hourly.values()):
-        raise ValueError(f"No Growatt readings for {yesterday}")
+        raise ValueError(f"No Growatt readings for {day}")
 
-    total_solar = 0.0
-    total_consumption = 0.0
-    total_grid_import = 0.0
-    total_grid_export = 0.0
-    expensive_consumption = 0.0
-    expensive_grid_import = 0.0
-    expensive_grid_export = 0.0
-    expensive_solar = 0.0
-    expensive_battery_discharge = 0.0
-    peak_solar_hour = None
-    peak_solar_val = 0.0
+    if not readings_present:
+        insert_readings(conn, day, hourly)
 
-    for time_str in sorted(hourly.keys()):
-        values = hourly[time_str]
-        if not isinstance(values, dict):
-            continue
-        hour = int(time_str.split(":")[0])
-        minute = int(time_str.split(":")[1])
-        # Field mapping:
-        #   ppv        = solar generation (kW)
-        #   sysOut     = total house consumption (kW)
-        #   userLoad   = export to grid (kW)
-        #   pacToUser  = battery discharge to house (kW)
-        # Grid import is derived: max(0, sysOut - ppv - pacToUser)
-        ppv = float(values.get("ppv", 0))
-        sys_out = float(values.get("sysOut", 0))
-        user_load = float(values.get("userLoad", 0))
-        pac_to_user = float(values.get("pacToUser", 0))
+    if existing is None:
+        total_solar = 0.0
+        total_consumption = 0.0
+        total_grid_import = 0.0
+        total_grid_export = 0.0
+        expensive_consumption = 0.0
+        expensive_grid_import = 0.0
+        expensive_grid_export = 0.0
+        expensive_solar = 0.0
+        expensive_battery_discharge = 0.0
+        peak_solar_hour = None
+        peak_solar_val = 0.0
 
-        grid_import = max(0, sys_out - ppv - pac_to_user)
+        for time_str in sorted(hourly.keys()):
+            values = hourly[time_str]
+            if not isinstance(values, dict):
+                continue
+            hour = int(time_str.split(":")[0])
+            minute = int(time_str.split(":")[1])
+            # Field mapping:
+            #   ppv        = solar generation (kW)
+            #   sysOut     = total house consumption (kW)
+            #   userLoad   = export to grid (kW)
+            #   pacToUser  = battery discharge to house (kW)
+            # Grid import is derived: max(0, sysOut - ppv - pacToUser)
+            ppv = float(values.get("ppv", 0))
+            sys_out = float(values.get("sysOut", 0))
+            user_load = float(values.get("userLoad", 0))
+            pac_to_user = float(values.get("pacToUser", 0))
 
-        total_solar += ppv
-        total_consumption += sys_out
-        total_grid_import += grid_import
-        total_grid_export += user_load
+            grid_import = max(0, sys_out - ppv - pac_to_user)
 
-        if ppv > peak_solar_val:
-            peak_solar_val = ppv
-            peak_solar_hour = time_str
+            total_solar += ppv
+            total_consumption += sys_out
+            total_grid_import += grid_import
+            total_grid_export += user_load
 
-        is_expensive = config.rates.is_expensive(hour, minute)
-        if is_expensive:
-            expensive_consumption += sys_out
-            expensive_grid_import += grid_import
-            expensive_grid_export += user_load
-            expensive_solar += ppv
-            expensive_battery_discharge += pac_to_user
+            if ppv > peak_solar_val:
+                peak_solar_val = ppv
+                peak_solar_hour = time_str
 
-    # Each reading is a 5-minute snapshot in kW; divide by 12 to get kWh
-    solar_gen_kwh = total_solar / 12
-    consumption_kwh = total_consumption / 12
-    grid_import_kwh = total_grid_import / 12
-    grid_export_kwh = total_grid_export / 12
-    expensive_consumption_kwh = expensive_consumption / 12
-    expensive_grid_import_kwh = expensive_grid_import / 12
-    expensive_grid_export_kwh = expensive_grid_export / 12
-    expensive_solar_kwh = expensive_solar / 12
-    expensive_battery_discharge_kwh = expensive_battery_discharge / 12
+            is_expensive = config.rates.is_expensive(hour, minute)
+            if is_expensive:
+                expensive_consumption += sys_out
+                expensive_grid_import += grid_import
+                expensive_grid_export += user_load
+                expensive_solar += ppv
+                expensive_battery_discharge += pac_to_user
 
-    # Get weather condition from the decision record for yesterday
-    decision = get_decision(conn, yesterday)
-    weather_condition = decision["forecast_summary"] if decision else None
+        # Each reading is a 5-minute snapshot in kW; divide by 12 to get kWh
+        solar_gen_kwh = total_solar / 12
+        consumption_kwh = total_consumption / 12
+        grid_import_kwh = total_grid_import / 12
+        grid_export_kwh = total_grid_export / 12
+        expensive_consumption_kwh = expensive_consumption / 12
+        expensive_grid_import_kwh = expensive_grid_import / 12
+        expensive_grid_export_kwh = expensive_grid_export / 12
+        expensive_solar_kwh = expensive_solar / 12
+        expensive_battery_discharge_kwh = expensive_battery_discharge / 12
 
-    insert_actuals(
-        conn, yesterday,
-        solar_gen=solar_gen_kwh,
-        consumption=consumption_kwh,
-        grid_import=grid_import_kwh,
-        grid_export=grid_export_kwh,
-        peak_solar_hour=peak_solar_hour,
-        min_soc=None, max_soc=None,
-        weather_condition=weather_condition,
-        expensive_consumption_kwh=expensive_consumption_kwh,
-        expensive_grid_import_kwh=expensive_grid_import_kwh,
-        expensive_grid_export_kwh=expensive_grid_export_kwh,
-        expensive_solar_kwh=expensive_solar_kwh,
-        expensive_battery_discharge_kwh=expensive_battery_discharge_kwh,
-    )
-    logger.info(f"Backfilled actuals for {yesterday}")
+        # Get weather condition from the decision record for day
+        decision = get_decision(conn, day)
+        weather_condition = decision["forecast_summary"] if decision else None
+
+        insert_actuals(
+            conn, day,
+            solar_gen=solar_gen_kwh,
+            consumption=consumption_kwh,
+            grid_import=grid_import_kwh,
+            grid_export=grid_export_kwh,
+            peak_solar_hour=peak_solar_hour,
+            min_soc=None, max_soc=None,
+            weather_condition=weather_condition,
+            expensive_consumption_kwh=expensive_consumption_kwh,
+            expensive_grid_import_kwh=expensive_grid_import_kwh,
+            expensive_grid_export_kwh=expensive_grid_export_kwh,
+            expensive_solar_kwh=expensive_solar_kwh,
+            expensive_battery_discharge_kwh=expensive_battery_discharge_kwh,
+        )
+        logger.info(f"Backfilled actuals for {day}")
     return True
 
 
@@ -172,7 +177,7 @@ def run_nightly(
     forecast = None
     current_soc = None
 
-    # Backfill yesterday's actuals
+    # Backfill day's actuals
     _backfill_actuals(conn, growatt_client, config, target_date)
 
     # Skip if a manual decision is already in place for the target date.
