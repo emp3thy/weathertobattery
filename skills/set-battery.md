@@ -14,7 +14,7 @@ Set tomorrow's Growatt battery charge level to a specific percentage. Skips the 
 2. Run the shortcut:
 
 ```bash
-cd C:\Users\gethi\source\weatherToBattery
+cd C:\Users\gethi\sources\weathertobattery
 python -c "
 from datetime import date, timedelta
 from pathlib import Path

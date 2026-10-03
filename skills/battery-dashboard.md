@@ -12,7 +12,7 @@ Start the local dashboard web app and open it in the browser.
 1. Start the FastAPI server:
 
 ```bash
-cd C:\Users\gethi\source\weatherToBattery
+cd C:\Users\gethi\sources\weathertobattery
 python -c "
 import uvicorn
 from pathlib import Path
