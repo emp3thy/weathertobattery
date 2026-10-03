@@ -8,7 +8,8 @@ from .weather.interface import WeatherProvider, DayForecast
 from .growatt.client import GrowattClient
 from .calculator.engine import calculate_charge
 from .db.queries import (
-    upsert_decision, get_decision, get_actuals, insert_actuals
+    upsert_decision, get_decision, get_actuals, insert_actuals,
+    insert_readings, has_readings,
 )
 
 logger = logging.getLogger(__name__)
@@ -16,15 +17,41 @@ logger = logging.getLogger(__name__)
 
 def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                       target_date: date) -> None:
-    """Backfill yesterday's actuals including expensive-hours consumption."""
-    yesterday = target_date - timedelta(days=1)
-    existing = get_actuals(conn, yesterday)
-    if existing:
-        return
+    """Backfill the most recent complete day's actuals.
 
+    The nightly run happens at ~22:00 for *tomorrow* (target_date), so
+    target_date - 1 is today and still in progress. Storing it now would
+    freeze a partial day (missing 22:00-24:00 consumption) that is never
+    refreshed. target_date - 2 is yesterday, which is complete.
+    """
+    yesterday = target_date - timedelta(days=2)
     try:
-        hourly = growatt_client.get_hourly_data(yesterday)
+        backfill_actuals_for_day(conn, growatt_client, config, yesterday)
+    except Exception as e:
+        logger.warning(f"Failed to backfill actuals for {yesterday}: {e}")
 
+
+def backfill_actuals_for_day(conn, growatt_client: GrowattClient, config: Config,
+                             day: date) -> bool:
+    """Fetch one day's 5-minute data from Growatt and store its actuals.
+
+    Returns False if the day already has both daily totals and readings.
+    Raises if Growatt returns no readings for the day (e.g. beyond its retention
+    window) so that callers never store a row of zeros.
+    """
+    existing = get_actuals(conn, day)
+    readings_present = has_readings(conn, day)
+    if existing and readings_present:
+        return False
+
+    hourly = growatt_client.get_hourly_data(day)
+    if not any(isinstance(v, dict) for v in hourly.values()):
+        raise ValueError(f"No Growatt readings for {day}")
+
+    if not readings_present:
+        insert_readings(conn, day, hourly)
+
+    if existing is None:
         total_solar = 0.0
         total_consumption = 0.0
         total_grid_import = 0.0
@@ -84,12 +111,12 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
         expensive_solar_kwh = expensive_solar / 12
         expensive_battery_discharge_kwh = expensive_battery_discharge / 12
 
-        # Get weather condition from the decision record for yesterday
-        decision = get_decision(conn, yesterday)
+        # Get weather condition from the decision record for this day
+        decision = get_decision(conn, day)
         weather_condition = decision["forecast_summary"] if decision else None
 
         insert_actuals(
-            conn, yesterday,
+            conn, day,
             solar_gen=solar_gen_kwh,
             consumption=consumption_kwh,
             grid_import=grid_import_kwh,
@@ -103,9 +130,8 @@ def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
             expensive_solar_kwh=expensive_solar_kwh,
             expensive_battery_discharge_kwh=expensive_battery_discharge_kwh,
         )
-        logger.info(f"Backfilled actuals for {yesterday}")
-    except Exception as e:
-        logger.warning(f"Failed to backfill actuals for {yesterday}: {e}")
+        logger.info(f"Backfilled actuals for {day}")
+    return True
 
 
 def _write_last_updated(path: Path, result: dict, forecast: DayForecast | None) -> None:
@@ -151,7 +177,7 @@ def run_nightly(
     forecast = None
     current_soc = None
 
-    # Backfill yesterday's actuals
+    # Backfill the last complete day's actuals
     _backfill_actuals(conn, growatt_client, config, target_date)
 
     # Skip if a manual decision is already in place for the target date.

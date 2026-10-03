@@ -213,3 +213,57 @@ def test_upsert_decision_stores_is_manual_flag(tmp_path):
     assert row["charge_level_set"] == 80
     assert row["adjustment_reason"] == "Manual: set to 80%"
     conn.close()
+
+
+def test_init_db_creates_readings_table(tmp_path):
+    from src.db.schema import init_db
+    conn = init_db(tmp_path / "test.db")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(readings)").fetchall()}
+    assert columns == {"date", "time", "ppv_kw", "sys_out_kw", "user_load_kw", "pac_to_user_kw"}
+    conn.close()
+
+
+def _sample_hourly():
+    return {
+        "00:00": {"ppv": "0", "sysOut": "0.5", "userLoad": "0", "pacToUser": "0.5"},
+        "00:05": {"ppv": None, "sysOut": "0.6", "userLoad": "0", "pacToUser": "0.6"},
+        "12:00": {"ppv": "3.2", "sysOut": "1.1", "userLoad": "0.4"},
+        "summary": "not a reading",
+    }
+
+
+def test_insert_readings_stores_each_five_minute_reading(tmp_path):
+    from src.db.schema import init_db
+    from src.db.queries import insert_readings
+    conn = init_db(tmp_path / "test.db")
+    insert_readings(conn, date(2026, 10, 2), _sample_hourly())
+    rows = conn.execute(
+        "SELECT time, ppv_kw, sys_out_kw, user_load_kw, pac_to_user_kw "
+        "FROM readings WHERE date = '2026-10-02' ORDER BY time").fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("00:00", 0.0, 0.5, 0.0, 0.5),
+        ("00:05", 0.0, 0.6, 0.0, 0.6),   # null ppv stored as 0.0
+        ("12:00", 3.2, 1.1, 0.4, 0.0),   # missing pacToUser stored as 0.0
+    ]
+    conn.close()
+
+
+def test_insert_readings_twice_is_idempotent(tmp_path):
+    from src.db.schema import init_db
+    from src.db.queries import insert_readings
+    conn = init_db(tmp_path / "test.db")
+    insert_readings(conn, date(2026, 10, 2), _sample_hourly())
+    insert_readings(conn, date(2026, 10, 2), _sample_hourly())
+    assert conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0] == 3
+    conn.close()
+
+
+def test_has_readings_reports_presence_for_a_day(tmp_path):
+    from src.db.schema import init_db
+    from src.db.queries import insert_readings, has_readings
+    conn = init_db(tmp_path / "test.db")
+    assert has_readings(conn, date(2026, 10, 2)) is False
+    insert_readings(conn, date(2026, 10, 2), _sample_hourly())
+    assert has_readings(conn, date(2026, 10, 2)) is True
+    assert has_readings(conn, date(2026, 10, 3)) is False
+    conn.close()

@@ -118,3 +118,30 @@ def get_max_generation_for_adjacent_months(conn: sqlite3.Connection, month: int)
     if row is None:
         return None
     return (row[0], row[1])
+
+
+def insert_readings(conn: sqlite3.Connection, dt: date, hourly: dict) -> None:
+    """Store Growatt's raw 5-minute readings for a day, replacing any already stored."""
+    rows = []
+    for time_key, value in sorted(hourly.items()):
+        if not isinstance(value, dict):
+            continue
+        rows.append((
+            str(dt), time_key,
+            float(value.get("ppv") or 0),
+            float(value.get("sysOut") or 0),
+            float(value.get("userLoad") or 0),
+            float(value.get("pacToUser") or 0),
+        ))
+    conn.executemany(
+        """INSERT OR REPLACE INTO readings
+           (date, time, ppv_kw, sys_out_kw, user_load_kw, pac_to_user_kw)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        rows)
+    conn.commit()
+
+
+def has_readings(conn: sqlite3.Connection, dt: date) -> bool:
+    """True if any row exists for the date; a partial day is never topped up later."""
+    cursor = conn.execute("SELECT 1 FROM readings WHERE date = ? LIMIT 1", (str(dt),))
+    return cursor.fetchone() is not None

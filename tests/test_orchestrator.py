@@ -257,3 +257,98 @@ def test_nightly_skips_when_manual_already_set(tmp_path, config):
     mock_growatt.set_charge_soc.assert_not_called()
     mock_growatt.get_hourly_data.assert_called()
     conn.close()
+
+
+def _growatt_with(hourly):
+    client = MagicMock()
+    client.get_hourly_data.return_value = hourly
+    return client
+
+
+def _two_readings():
+    return {
+        "08:00": {"ppv": "1.0", "sysOut": "0.5", "userLoad": "0", "pacToUser": "0"},
+        "20:00": {"ppv": "0", "sysOut": "1.2", "userLoad": "0", "pacToUser": "1.2"},
+    }
+
+
+def test_backfill_stores_readings_for_day_with_existing_totals(tmp_path, config):
+    from src.orchestrator import backfill_actuals_for_day
+    from src.db.schema import init_db
+    from src.db.queries import insert_actuals, get_actuals, has_readings
+    conn = init_db(tmp_path / "test.db")
+    day = date(2026, 7, 10)
+    insert_actuals(conn, day, 35.0, 25.0, 3.0, 5.0, "12:00", 20, 95)
+    assert backfill_actuals_for_day(conn, _growatt_with(_two_readings()), config, day) is True
+    assert has_readings(conn, day) is True
+    row = get_actuals(conn, day)
+    assert row is not None
+    assert row["total_solar_generation_kwh"] == 35.0  # totals untouched
+    conn.close()
+
+
+def test_backfill_stores_totals_and_readings_for_new_day(tmp_path, config):
+    from src.orchestrator import backfill_actuals_for_day
+    from src.db.schema import init_db
+    from src.db.queries import get_actuals, has_readings
+    conn = init_db(tmp_path / "test.db")
+    day = date(2026, 7, 10)
+    assert backfill_actuals_for_day(conn, _growatt_with(_two_readings()), config, day) is True
+    assert has_readings(conn, day) is True
+    row = get_actuals(conn, day)
+    assert row is not None
+    assert row["total_solar_generation_kwh"] == pytest.approx(1.0 / 12)
+    conn.close()
+
+
+def test_backfill_skips_growatt_when_day_is_complete(tmp_path, config):
+    from src.orchestrator import backfill_actuals_for_day
+    from src.db.schema import init_db
+    from src.db.queries import insert_actuals, insert_readings
+    conn = init_db(tmp_path / "test.db")
+    day = date(2026, 7, 10)
+    insert_actuals(conn, day, 35.0, 25.0, 3.0, 5.0, "12:00", 20, 95)
+    insert_readings(conn, day, _two_readings())
+    client = _growatt_with(_two_readings())
+    assert backfill_actuals_for_day(conn, client, config, day) is False
+    client.get_hourly_data.assert_not_called()
+    conn.close()
+
+
+def test_backfill_raises_and_stores_nothing_when_no_readings(tmp_path, config):
+    from src.orchestrator import backfill_actuals_for_day
+    from src.db.schema import init_db
+    from src.db.queries import has_readings, get_actuals
+    conn = init_db(tmp_path / "test.db")
+    day = date(2026, 7, 10)
+    with pytest.raises(ValueError):
+        backfill_actuals_for_day(conn, _growatt_with({"summary": "x"}), config, day)
+    assert has_readings(conn, day) is False
+    assert get_actuals(conn, day) is None
+    conn.close()
+
+
+def test_nightly_backfills_the_day_before_target_minus_one(tmp_path, config):
+    """Nightly runs at 22:00 for tomorrow: target-1 is today (incomplete), so
+    the last complete day to backfill is target-2."""
+    from datetime import timedelta
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+
+    conn = init_db(tmp_path / "test.db")
+    target = date(2026, 7, 15)
+
+    mock_weather = MagicMock()
+    mock_weather.get_forecast.return_value = _make_forecast(target)
+    mock_growatt = MagicMock()
+    mock_growatt.get_hourly_data.return_value = {}
+    mock_growatt.get_current_soc.return_value = 30
+
+    run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path,
+    )
+
+    mock_growatt.get_hourly_data.assert_called_once_with(target - timedelta(days=2))
+    conn.close()

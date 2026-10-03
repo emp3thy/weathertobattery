@@ -31,6 +31,16 @@ CREATE TABLE IF NOT EXISTS actuals (
     expensive_battery_discharge_kwh REAL
 );
 
+CREATE TABLE IF NOT EXISTS readings (
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    ppv_kw REAL NOT NULL,
+    sys_out_kw REAL NOT NULL,
+    user_load_kw REAL NOT NULL,
+    pac_to_user_kw REAL NOT NULL,
+    PRIMARY KEY (date, time)
+);
+
 """
 
 

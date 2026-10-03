@@ -13,7 +13,7 @@ Set the optimal overnight battery charge level based on tomorrow's weather forec
 2. Run the orchestrator:
 
 ```bash
-cd C:\Users\gethi\source\weatherToBattery
+cd C:\Users\gethi\sources\weathertobattery
 python -c "
 from datetime import date, timedelta
 from pathlib import Path
