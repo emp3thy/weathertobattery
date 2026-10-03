@@ -30,6 +30,8 @@
 
 ### Task 1: `readings` table
 
+**Confidence:** 98%. A six-column table following the existing `CREATE TABLE IF NOT EXISTS` pattern; nothing unknown.
+
 **Files:**
 - Modify: `src/db/schema.py` (the `SCHEMA_SQL` string, after the `actuals` table)
 - Test: `tests/test_db.py`
@@ -70,6 +72,8 @@ git commit -m "feat: add readings table for raw 5-minute Growatt data"
 ---
 
 ### Task 2: `insert_readings` and `has_readings`
+
+**Confidence:** 95%. The Growatt payload shape is known from live data (string kW values keyed by `HH:MM`, plus non-dict keys), and the conversion rule is pinned by test.
 
 **Files:**
 - Modify: `src/db/queries.py` (append after `get_actuals_range`)
@@ -154,6 +158,8 @@ git commit -m "feat: insert_readings and has_readings queries"
 ---
 
 ### Task 3: Backfill stores readings alongside daily totals
+
+**Confidence:** 90%. Restructures an existing function with eight tests around it; the only uncertainty is whether the pre-existing `test_nightly_skips_when_manual_already_set` still passes unchanged, which Step 4 checks.
 
 **Files:**
 - Modify: `src/orchestrator.py` (`backfill_actuals_for_day`, currently lines 27-123; the import block at line 10)
@@ -257,6 +263,8 @@ git commit -m "feat: backfill stores raw readings alongside daily totals"
 ---
 
 ### Task 4: Populate readings for existing history
+
+**Confidence:** 85%. Depends on the live Growatt API: 91 calls succeeded earlier today, but retention moves daily, so the oldest day may have expired and the `no data` count may differ from the expected line. The daily-totals check is the real pass criterion.
 
 **Files:**
 - None modified. Runs `scripts/backfill_actuals.py` against `data/battery.db`.
