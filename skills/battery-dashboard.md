@@ -9,18 +9,14 @@ Start the local dashboard web app and open it in the browser.
 
 ## Steps
 
-1. Start the FastAPI server:
+1. Start the FastAPI server (it reads the port from `config.yaml`, default 8099). Run this in the background:
 
 ```bash
 cd C:\Users\gethi\sources\weathertobattery
-python -c "
-import uvicorn
-from pathlib import Path
-from src.dashboard.app import create_app
-app = create_app(Path('data/battery.db'))
-uvicorn.run(app, host='127.0.0.1', port=8099)
-" &
+python run_dashboard.py
 ```
+
+   If `curl -sf http://127.0.0.1:8099` already responds, the dashboard is running; skip this step.
 
 2. Open the browser:
 

@@ -15,20 +15,28 @@ from .db.queries import (
 logger = logging.getLogger(__name__)
 
 
+BACKFILL_LOOKBACK_DAYS = 7
+
+
 def _backfill_actuals(conn, growatt_client: GrowattClient, config: Config,
                       target_date: date) -> None:
-    """Backfill the most recent complete day's actuals.
+    """Backfill actuals for recent complete days, filling any gaps.
 
     The nightly run happens at ~22:00 for *tomorrow* (target_date), so
     target_date - 1 is today and still in progress. Storing it now would
     freeze a partial day (missing 22:00-24:00 consumption) that is never
     refreshed. target_date - 2 is yesterday, which is complete.
+
+    Walks back BACKFILL_LOOKBACK_DAYS from yesterday so that a night the
+    scheduled task did not run (PC off, on battery, logged out) does not
+    leave a permanent hole. Days already stored cost no Growatt call.
     """
-    yesterday = target_date - timedelta(days=2)
-    try:
-        backfill_actuals_for_day(conn, growatt_client, config, yesterday)
-    except Exception as e:
-        logger.warning(f"Failed to backfill actuals for {yesterday}: {e}")
+    for offset in range(2, 2 + BACKFILL_LOOKBACK_DAYS):
+        day = target_date - timedelta(days=offset)
+        try:
+            backfill_actuals_for_day(conn, growatt_client, config, day)
+        except Exception as e:
+            logger.warning(f"Failed to backfill actuals for {day}: {e}")
 
 
 def backfill_actuals_for_day(conn, growatt_client: GrowattClient, config: Config,
