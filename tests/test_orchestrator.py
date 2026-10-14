@@ -350,5 +350,53 @@ def test_nightly_backfills_the_day_before_target_minus_one(tmp_path, config):
         project_root=tmp_path,
     )
 
-    mock_growatt.get_hourly_data.assert_called_once_with(target - timedelta(days=2))
+    fetched = [call.args[0] for call in mock_growatt.get_hourly_data.call_args_list]
+    assert fetched[0] == target - timedelta(days=2)
+    assert target - timedelta(days=1) not in fetched
+    assert target not in fetched
+    conn.close()
+
+
+def test_nightly_backfill_fills_gaps_within_lookback(tmp_path, config):
+    """A missed nightly run must not leave a permanent hole in actuals."""
+    from datetime import timedelta
+    from src.orchestrator import _backfill_actuals
+    from src.db.schema import init_db
+    from src.db.queries import insert_actuals, insert_readings, get_actuals
+    conn = init_db(tmp_path / "test.db")
+    target = date(2026, 10, 14)
+    complete = [target - timedelta(days=2), target - timedelta(days=3)]
+    gap = target - timedelta(days=4)
+    for day in complete:
+        insert_actuals(conn, day, 35.0, 25.0, 3.0, 5.0, "12:00", 20, 95)
+        insert_readings(conn, day, _two_readings())
+    client = _growatt_with(_two_readings())
+
+    _backfill_actuals(conn, client, config, target)
+
+    assert get_actuals(conn, gap) is not None
+    fetched = {call.args[0] for call in client.get_hourly_data.call_args_list}
+    assert gap in fetched
+    assert not (set(complete) & fetched)
+    conn.close()
+
+
+def test_nightly_backfill_continues_past_days_without_data(tmp_path, config):
+    from datetime import timedelta
+    from src.orchestrator import _backfill_actuals
+    from src.db.schema import init_db
+    from src.db.queries import get_actuals
+    conn = init_db(tmp_path / "test.db")
+    target = date(2026, 10, 14)
+    empty_day = target - timedelta(days=2)
+    good_day = target - timedelta(days=3)
+    client = MagicMock()
+    client.get_hourly_data.side_effect = (
+        lambda day: {"summary": "x"} if day == empty_day else _two_readings()
+    )
+
+    _backfill_actuals(conn, client, config, target)
+
+    assert get_actuals(conn, empty_day) is None
+    assert get_actuals(conn, good_day) is not None
     conn.close()
