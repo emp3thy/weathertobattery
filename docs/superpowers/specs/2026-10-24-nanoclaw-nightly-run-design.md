@@ -76,9 +76,25 @@ code; changes flow through git (`git pull` in Ubuntu).
 
 **Mount.** `/home/gethi/weathertobattery` is added to the NanoClaw mount
 allowlist (`~/.config/nanoclaw/mount-allowlist.json`) as `allowReadWrite:
-true`, and attached to the Battery Scheduler group as an additional mount at
-`/workspace/weathertobattery`. The default `blockedPatterns` list matches path
-names only, so `.env` inside the folder is not blocked.
+true`, and attached to the Battery Scheduler group as an additional mount with
+container path `weathertobattery`. Two NanoClaw rules, both confirmed by test
+on 2026-10-24:
+
+- The container path must be *relative*; NanoClaw prefixes it with
+  `/workspace/extra/`, so the project appears in the container at
+  `/workspace/extra/weathertobattery`. An absolute path is silently rejected at
+  spawn time (a warning in `logs/nanoclaw.error.log`, no mount).
+- A mount is read-write only when its stored config says `"readonly": false`
+  explicitly *and* the allowlist root allows read-write. `ncl groups config
+  add-mount` has no flag to set `readonly: false`; it omits the key, which
+  NanoClaw treats as read-only. The implementation therefore sets the field
+  with one update to `container_configs.additional_mounts` in `data/v2.db`
+  via `scripts/q.ts`, then `ncl groups restart`.
+
+Files the container creates in the mount are owned by `gethi` on the host, so
+the dashboard can read them. The default `blockedPatterns` list is matched
+against the mounted directory's own path, not its contents, so `.env` inside
+the folder is not blocked.
 
 **Python in the image.** The group's container config gets `python3` and
 `python3-venv` via `ncl groups config add-package --apt`. NanoClaw builds a
@@ -87,7 +103,7 @@ image itself is untouched (see `docs/hardened-image.md` in NanoClaw: apt and
 npm packages work as a derived image).
 
 **Python dependencies.** A virtual environment at
-`/workspace/weathertobattery/.venv`, created on first run from
+`/workspace/extra/weathertobattery/.venv`, created on first run from
 `requirements.txt`. Because it lives in the mounted folder it persists across
 container restarts and image rebuilds. A venv is bound to the absolute path and
 Python build it was created with, and the container's Python is not the host's,
@@ -123,16 +139,18 @@ follows British clock changes. The task name is `nightly-charge`.
 
 **Prompt.** The task prompt is fixed text, roughly:
 
-> Run `bash /workspace/weathertobattery/scripts/run-nightly.sh`. Then send one
-> message to the owner's Slack DM. If the exit status was 0, send exactly the
-> script's final output line prefixed with "Battery:". If it was not 0, send
-> "Battery run FAILED (exit N)" followed by the last 15 lines of
-> `/workspace/weathertobattery/data/nightly.log`. Do not retry, do not change
-> any file, do not interpret or summarise the output.
+> Run `bash /workspace/extra/weathertobattery/scripts/run-nightly.sh`. Then
+> send one message to the destination `owner-dm`. If the exit status was 0,
+> send exactly the script's final output line prefixed with "Battery:". If it
+> was not 0, send "Battery run FAILED (exit N)" followed by the last 15 lines
+> of `/workspace/extra/weathertobattery/data/nightly.log`. Do not retry, do
+> not change any file, do not interpret or summarise the output.
 
-**Destination.** The owner's Slack DM (`slack:D0CBYSNNB3N`) is added as a
-destination of the Battery Scheduler group with `ncl destinations add`, so the
-agent can send there without being wired to receive from it.
+**Destination.** The owner's Slack DM (messaging group
+`mg-1792842294323-af0eto`, platform id `slack:D0CBYSNNB3N`) is added as a
+destination named `owner-dm` with `ncl destinations add --target-type channel`,
+so the agent can send there without being wired to receive from it. Confirmed
+by test on 2026-10-24: a group with zero wirings delivered to this destination.
 
 **What the agent does not do.** It never edits `config.yaml`, `.env` or the
 database, never installs packages beyond the wrapper's venv step, and never
@@ -212,27 +230,26 @@ Status: **verified** (checked today), **measured** (observed in operation), or
 **unverified**. Each line says what it costs if wrong.
 
 - NanoClaw's apt package mechanism produces a working derived image on top of
-  the pinned hardened image, including `python3-venv`. **Unverified** (the
-  mechanism is documented; it has not been exercised on this install). If
-  wrong: fall back to a locally built agent image with Python baked in, which
-  this install already has (`nanoclaw-agent-v2-479b04f8:latest`); that costs
-  the switch from hardened to local image for this group only.
+  the pinned hardened image, including `python3-venv`. **Verified** on this
+  install on 2026-10-24: `add-package --apt python3 --apt python3-venv` plus
+  `ncl groups restart --rebuild` built a per-group image in about a minute;
+  inside it `python3 --version` reported 3.13.5 and `python3 -m venv` worked.
 - Agent containers reach `server.growatt.com`, `api.open-meteo.com` and
   `pypi.org` through the OneCLI proxy without credentials. **Verified** by
   probe from a container today (HTTP 200 on all three). If wrong later (for
   example a proxy policy change): the run fails loudly and is reported.
 - A bind mount from the mount allowlist is writable by the container user, so
-  the job can write `battery.db`, the log and the venv. **Unverified** on this
-  install. If wrong: ownership fix on the host folder (`chown`/`chmod`) or
-  running the venv in the group workspace instead; small.
+  the job can write `battery.db`, the log and the venv. **Verified** on
+  2026-10-24, with the two conditions recorded in the Mount paragraph above
+  (relative container path; `readonly: false` set in the DB). A file written
+  from the container appeared on the host owned by `gethi`.
 - `ncl tasks create` accepts a five-field cron recurrence and runs it in the
   install timezone. **Verified** from NanoClaw source
   (`validateRecurrence` uses cron-parser with the install `TIMEZONE`).
 - A group that is not wired to any messaging group can still deliver to a
-  registered destination. **Unverified**; the `destinations` resource exists
-  for exactly this, but it has not been exercised here. If wrong: wire the
-  group to the Slack DM with an engage mode that ignores inbound, which is
-  noisier but works.
+  registered destination. **Verified** on 2026-10-24: a throwaway group with
+  zero wirings and one `channel` destination delivered a task-triggered
+  message to the owner's Slack DM.
 - SQLite over a Docker bind mount of a native ext4 path is reliable.
   **Verified** in general (it is the normal Docker case); the unreliable case
   is `/mnt/c`, which this design avoids.
@@ -242,6 +259,9 @@ Status: **verified** (checked today), **measured** (observed in operation), or
   **Verified** by inspecting the scheduled tasks; no other job references the
   folder.
 - `--dry-run` can skip the set-charge call and the decisions insert without
-  restructuring the orchestrator. **Unverified** until the code is read in
-  detail; if awkward, the fallback is a `GROWATT_DRY_RUN=1` environment check
-  inside the Growatt client, which is cruder but equivalent for the test.
+  restructuring the orchestrator. **Verified** by reading `run_nightly` on
+  2026-10-24: it has exactly one `set_charge_soc` call, one `upsert_decision`
+  call and one `_write_last_updated` call, all after the calculation. A
+  `dry_run: bool = False` parameter that skips those three is a contained
+  change; the earlier `_backfill_actuals` step can run unchanged since it only
+  records history.
