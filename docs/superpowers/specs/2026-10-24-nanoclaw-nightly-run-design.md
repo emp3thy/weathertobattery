@@ -225,6 +225,30 @@ Outside this repository (configuration, not code): NanoClaw mount allowlist,
 agent group, container config, destination, task; one systemd user unit for
 the dashboard; the Windows scheduled task disabled then deleted.
 
+## Amendment (2026-10-24, after implementation): the job lives under Dr Claw
+
+After the first provisioning, the owner asked for the nightly job to sit under
+the existing chat agent, "Dr Claw" (`ag-1792842294321-ro8wyt`, folder
+`dm-with-gethin`), rather than a dedicated "Battery Scheduler" group, because a
+dedicated group's schedule is invisible to the agent they talk to. The
+dedicated group was removed and Dr Claw's group now carries:
+
+- `packages_apt`: `python3`, `python3-venv` (derived image rebuilt);
+- the mount `/home/gethi/weathertobattery` → `/workspace/extra/weathertobattery`
+  with `readonly: false`;
+- a "Nightly battery job" section in `groups/dm-with-gethin/instructions.prepend.md`
+  carrying the rules Section 2 gave the dedicated group;
+- the recurring task `nightly-charge-dcb7` (`0 22 * * *`), whose prompt names
+  Dr Claw's existing destination `gethin` instead of `owner-dm`.
+
+Everything else in this document stands. The trade accepted is the one
+Section 1 originally avoided: Dr Claw's chat container now has the project
+mount, including `.env`, and a chat session could in principle read or alter
+the job's files. The standing instructions forbid it; they are not a hard
+boundary. Dr Claw's `cli_scope` is `global`, so `ncl tasks list --all` and
+`ncl tasks get --id nightly-charge-dcb7` from chat show the schedule and run
+history directly.
+
 ## Assumptions
 
 Status: **verified** (checked today), **measured** (observed in operation), or
