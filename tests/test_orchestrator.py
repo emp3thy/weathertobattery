@@ -400,3 +400,112 @@ def test_nightly_backfill_continues_past_days_without_data(tmp_path, config):
     assert get_actuals(conn, empty_day) is None
     assert get_actuals(conn, good_day) is not None
     conn.close()
+
+
+def _nightly_mocks(target_date):
+    """Weather + Growatt mocks shared by the dry-run tests."""
+    mock_weather = MagicMock()
+    mock_weather.get_forecast.return_value = _make_forecast(target_date)
+    mock_growatt = MagicMock()
+    mock_growatt.get_current_soc.return_value = 15
+    mock_growatt.set_charge_soc.return_value = True
+    mock_growatt.get_hourly_data.return_value = {}
+    return mock_weather, mock_growatt
+
+
+def test_run_nightly_dry_run_computes_but_does_not_set_or_write(tmp_path, config):
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+    from src.db.queries import get_decision
+
+    conn = init_db(tmp_path / "test.db")
+    _seed_actuals(conn)
+    target = date(2026, 7, 15)
+    mock_weather, mock_growatt = _nightly_mocks(target)
+
+    result = run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path, dry_run=True,
+    )
+
+    assert result["dry_run"] is True
+    assert result["success"] is True
+    assert 0 <= result["charge_level"] <= 100
+    mock_growatt.set_charge_soc.assert_not_called()
+    assert get_decision(conn, target) is None
+    assert not (tmp_path / "last_updated.md").exists()
+    conn.close()
+
+
+def test_run_nightly_default_reports_dry_run_false(tmp_path, config):
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+
+    conn = init_db(tmp_path / "test.db")
+    _seed_actuals(conn)
+    target = date(2026, 7, 15)
+    mock_weather, mock_growatt = _nightly_mocks(target)
+
+    result = run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path,
+    )
+
+    assert result["dry_run"] is False
+    mock_growatt.set_charge_soc.assert_called_once()
+    conn.close()
+
+
+def test_run_nightly_dry_run_respects_existing_manual_decision(tmp_path, config):
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+    from src.db.queries import upsert_decision
+
+    conn = init_db(tmp_path / "test.db")
+    target = date(2026, 7, 15)
+    upsert_decision(conn, target, forecast_summary="manual", forecast_detail="[]",
+                    charge_level_set=70, adjustment_reason="Manual: set to 70%",
+                    current_soc=None, month=7, weather_provider="open-meteo",
+                    is_manual=1)
+    mock_weather, mock_growatt = _nightly_mocks(target)
+
+    result = run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path, dry_run=True,
+    )
+
+    assert result["dry_run"] is True
+    assert result["reason"].startswith("Skipped")
+    assert result["charge_level"] == 70
+    mock_growatt.set_charge_soc.assert_not_called()
+    mock_weather.get_forecast.assert_not_called()
+    conn.close()
+
+
+def test_run_nightly_dry_run_weather_failure_uses_fallback_without_setting(tmp_path, config, monkeypatch):
+    import time as _time
+    from src.orchestrator import run_nightly
+    from src.db.schema import init_db
+    from src.db.queries import get_decision
+
+    monkeypatch.setattr(_time, "sleep", lambda *a, **k: None)
+    conn = init_db(tmp_path / "test.db")
+    _seed_actuals(conn)
+    target = date(2026, 7, 15)
+    mock_weather, mock_growatt = _nightly_mocks(target)
+    mock_weather.get_forecast.side_effect = Exception("API down")
+
+    result = run_nightly(
+        config=config, conn=conn, weather_provider=mock_weather,
+        growatt_client=mock_growatt, target_date=target,
+        project_root=tmp_path, dry_run=True,
+    )
+
+    assert result["dry_run"] is True
+    assert result["charge_level"] == config.battery.fallback_charge_level
+    mock_growatt.set_charge_soc.assert_not_called()
+    assert get_decision(conn, target) is None
+    conn.close()

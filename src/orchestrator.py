@@ -179,7 +179,14 @@ def _write_last_updated(path: Path, result: dict, forecast: DayForecast | None) 
 def run_nightly(
     config: Config, conn, weather_provider: WeatherProvider,
     growatt_client: GrowattClient, target_date: date, project_root: Path,
+    dry_run: bool = False,
 ) -> dict:
+    """Compute and apply tonight's charge level.
+
+    With ``dry_run`` the calculation runs exactly as normal (including the
+    Growatt login, SOC read and actuals backfill) but nothing is set on the
+    inverter, no decision row is written and ``last_updated.md`` is untouched.
+    """
     timestamp = datetime.now().isoformat()
     errors = []
     forecast = None
@@ -199,6 +206,7 @@ def run_nightly(
             "target_date": str(target_date),
             "timestamp": timestamp,
             "errors": [],
+            "dry_run": dry_run,
         }
 
     # Read current SOC
@@ -236,28 +244,30 @@ def run_nightly(
         reason = calc_result.reason
 
     # Set on Growatt
-    try:
-        growatt_client.set_charge_soc(charge_level)
-    except Exception as e:
-        logger.error(f"Failed to set charge: {e}")
-        errors.append(f"Failed to set charge: {e}")
+    if not dry_run:
+        try:
+            growatt_client.set_charge_soc(charge_level)
+        except Exception as e:
+            logger.error(f"Failed to set charge: {e}")
+            errors.append(f"Failed to set charge: {e}")
 
     # Log decision
-    forecast_detail = json.dumps(
-        [{"hour": h.hour, "cloud": h.cloud_cover_pct,
-          "radiation": h.solar_radiation_wm2, "precip": h.precipitation_probability_pct}
-         for h in forecast.hourly] if forecast else []
-    )
-    upsert_decision(
-        conn, target_date,
-        forecast_summary=forecast.condition if forecast else "unknown",
-        forecast_detail=forecast_detail,
-        charge_level_set=charge_level,
-        adjustment_reason=reason,
-        current_soc=current_soc,
-        month=target_date.month,
-        weather_provider=config.weather.provider,
-    )
+    if not dry_run:
+        forecast_detail = json.dumps(
+            [{"hour": h.hour, "cloud": h.cloud_cover_pct,
+              "radiation": h.solar_radiation_wm2, "precip": h.precipitation_probability_pct}
+             for h in forecast.hourly] if forecast else []
+        )
+        upsert_decision(
+            conn, target_date,
+            forecast_summary=forecast.condition if forecast else "unknown",
+            forecast_detail=forecast_detail,
+            charge_level_set=charge_level,
+            adjustment_reason=reason,
+            current_soc=current_soc,
+            month=target_date.month,
+            weather_provider=config.weather.provider,
+        )
 
     result = {
         "success": len(errors) == 0,
@@ -266,9 +276,11 @@ def run_nightly(
         "target_date": str(target_date),
         "timestamp": timestamp,
         "errors": errors,
+        "dry_run": dry_run,
     }
 
-    _write_last_updated(project_root, result, forecast)
+    if not dry_run:
+        _write_last_updated(project_root, result, forecast)
     return result
 
 
