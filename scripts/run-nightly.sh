@@ -17,7 +17,13 @@ cd "$PROJECT_ROOT" || exit 1
 
 VENV="$PROJECT_ROOT/.venv"
 LOG="$PROJECT_ROOT/data/nightly.log"
-mkdir -p "$PROJECT_ROOT/data"
+
+# Fail before anything touches the inverter if the log cannot be written: the
+# caller reports from this log, so a run it cannot record must not happen.
+if ! mkdir -p "$PROJECT_ROOT/data" 2>/dev/null || ! { : >> "$LOG"; } 2>/dev/null; then
+  echo "cannot write $LOG; refusing to run" >&2
+  exit 1
+fi
 
 # Behind the NanoClaw/OneCLI proxy every HTTPS connection is re-signed with the
 # gateway's CA. curl and httpx read SSL_CERT_FILE; requests (used by the Growatt
@@ -33,11 +39,13 @@ log_header() {
 }
 
 # A venv counts as ready only when the stamp written after a successful
-# `pip install` exists; a venv that failed part-way is removed so the next run
-# rebuilds it instead of running the script against missing packages.
+# `pip install` exists AND it records the hash of the requirements.txt that was
+# installed; a changed requirements.txt or a venv that failed part-way is
+# rebuilt instead of running the script against missing packages.
 STAMP="$VENV/.requirements-installed"
+WANT="$(sha256sum "$PROJECT_ROOT/requirements.txt" | cut -d' ' -f1)"
 log_header "$@"
-if [ ! -f "$STAMP" ]; then
+if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ]; then
   rm -rf "$VENV"
   {
     echo "creating venv at $VENV"
@@ -50,7 +58,7 @@ if [ ! -f "$STAMP" ]; then
     tail -n 5 "$LOG" >&2
     exit "$status"
   fi
-  touch "$STAMP"
+  printf '%s\n' "$WANT" > "$STAMP"
 fi
 
 output="$("$VENV/bin/python" "$PROJECT_ROOT/scripts/nightly-charge.py" "$@" 2>&1 | tee -a "$LOG"; exit "${PIPESTATUS[0]}")"

@@ -508,4 +508,10 @@ def test_run_nightly_dry_run_weather_failure_uses_fallback_without_setting(tmp_p
     assert result["charge_level"] == config.battery.fallback_charge_level
     mock_growatt.set_charge_soc.assert_not_called()
     assert get_decision(conn, target) is None
+    # Pre-existing contract, documented in the spec's failure table: a weather
+    # outage keeps the error, so the run reports failure even though the
+    # fallback level is what would be (or, outside dry-run, was) applied.
+    assert result["success"] is False
+    assert "fallback" in result["reason"].lower()
+    assert any("Weather API failed" in e for e in result["errors"])
     conn.close()

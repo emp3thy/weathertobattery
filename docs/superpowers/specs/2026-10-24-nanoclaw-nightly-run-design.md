@@ -172,7 +172,8 @@ There is no concurrent-writer case to design for.
 
 | Failure | Behaviour |
 |---|---|
-| Script fails (Growatt login, API error, config error) | Wrapper exits non-zero. Agent posts "Battery run FAILED" with the log tail. No automatic retry. The script's existing weather fallback already covers an Open-Meteo outage, so a reported failure is a real problem. |
+| Script fails (Growatt login, API error, config error) | Wrapper exits non-zero. Agent posts "Battery run FAILED" with the log tail. No automatic retry. |
+| Open-Meteo outage | The script applies `fallback_charge_level` to the inverter and records the decision, **but still exits 1** because the weather error is kept in `errors` (pre-existing behaviour, unchanged by this work). The owner therefore sees "Battery run FAILED (exit 1)" with `Weather API failed` in the quoted log on a night when the fallback charge *was* set. Read the log tail: "fallback" means the inverter is fine. Making this a success-with-warning is a follow-up outside this spec. |
 | Container, image or gateway unavailable at 22:00 | NanoClaw's host sweep retries waking the task on its next pass, so a short outage delays the run. The task's run log (`ncl tasks get`) shows whether it ran. |
 | Venv missing or broken | Wrapper recreates it from `requirements.txt` through the proxy (PyPI passes through). If that fails, it is reported as a script failure. |
 | Agent misreports | The prompt restricts the agent to quoting the exit status and the script's own output. `data/nightly.log` and `battery.db` remain the source of truth. |

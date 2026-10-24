@@ -120,6 +120,8 @@ The nightly job can run from a [NanoClaw](https://github.com/nanocoai/nanoclaw) 
 - `scripts/nightly-charge.py --dry-run` (or `scripts/run-nightly.sh --dry-run`) runs everything except setting the inverter and recording the decision, which is how the task is rehearsed.
 - The dashboard runs on the host from its own venv (`.venv-host`) as the `weathertobattery-dashboard` systemd user service, still on `http://localhost:8099`.
 - Behind NanoClaw's credential proxy, `run-nightly.sh` exports `REQUESTS_CA_BUNDLE` (and friends) from `SSL_CERT_FILE` so the Growatt client's HTTPS calls trust the proxy's certificate.
+- The wrapper records a hash of `requirements.txt` in `.venv/.requirements-installed` and rebuilds the venv when the file changes, so pulling a dependency change needs no manual step.
+- Reading a "Battery run FAILED" message: if the quoted log says `Weather API failed`, the fallback charge level *was* applied to the inverter; the script exits 1 to flag the outage. Any other failure means nothing was set.
 
 ## Data
 
