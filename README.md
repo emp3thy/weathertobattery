@@ -109,7 +109,17 @@ Then open http://127.0.0.1:8099. Pages include:
 
 ### Scheduling
 
-Set up a nightly task (e.g. Windows Task Scheduler or cron) to run the charge script around 10 PM, before your cheap rate starts.
+Run `scripts/nightly-charge.py` around 10 PM each night, before your cheap rate starts. Any scheduler works (cron, systemd timers, Windows Task Scheduler); the section below describes the NanoClaw setup this repository's owner uses.
+
+### Running under NanoClaw
+
+The nightly job can run from a [NanoClaw](https://github.com/nanocoai/nanoclaw) agent group instead of a local scheduler. The design is in `docs/superpowers/specs/2026-10-24-nanoclaw-nightly-run-design.md`; in short:
+
+- The project lives at `~/weathertobattery` on the NanoClaw host (WSL2 Ubuntu here) and is mounted read-write into a dedicated agent group at `/workspace/extra/weathertobattery`.
+- A recurring NanoClaw task (`0 22 * * *`) runs `scripts/run-nightly.sh`, which owns a venv at `.venv` inside the project, creates it from `requirements.txt` on first use, appends to `data/nightly.log`, and exits with the script's status. The agent relays the wrapper's final line to a Slack DM.
+- `scripts/nightly-charge.py --dry-run` (or `scripts/run-nightly.sh --dry-run`) runs everything except setting the inverter and recording the decision, which is how the task is rehearsed.
+- The dashboard runs on the host from its own venv (`.venv-host`) as the `weathertobattery-dashboard` systemd user service, still on `http://localhost:8099`.
+- Behind NanoClaw's credential proxy, `run-nightly.sh` exports `REQUESTS_CA_BUNDLE` (and friends) from `SSL_CERT_FILE` so the Growatt client's HTTPS calls trust the proxy's certificate.
 
 ## Data
 
