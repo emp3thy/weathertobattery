@@ -87,11 +87,13 @@ image itself is untouched (see `docs/hardened-image.md` in NanoClaw: apt and
 npm packages work as a derived image).
 
 **Python dependencies.** A virtual environment at
-`/workspace/weathertobattery/.venv` (host path `~/weathertobattery/.venv`),
-created on first run from `requirements.txt`. Because it lives in the mounted
-folder it persists across container restarts and image rebuilds, and the same
-venv serves the dashboard on the host (Ubuntu path `~/weathertobattery/.venv`).
-The folder's `.gitignore` gains `.venv/`.
+`/workspace/weathertobattery/.venv`, created on first run from
+`requirements.txt`. Because it lives in the mounted folder it persists across
+container restarts and image rebuilds. A venv is bound to the absolute path and
+Python build it was created with, and the container's Python is not the host's,
+so the dashboard on the Ubuntu host uses its own venv at
+`~/weathertobattery/.venv-host`, created once by hand from the same
+`requirements.txt`. The folder's `.gitignore` gains `.venv*/`.
 
 **Wrapper script.** New file `scripts/run-nightly.sh` in the repository:
 
@@ -139,7 +141,7 @@ decides the charge level. The group's `CLAUDE.md` says so explicitly.
 ### 3. Dashboard
 
 A systemd user unit `weathertobattery-dashboard.service` in Ubuntu runs
-`~/weathertobattery/.venv/bin/python run_dashboard.py` from the project
+`~/weathertobattery/.venv-host/bin/python run_dashboard.py` from the project
 directory, `Restart=on-failure`, enabled so that it starts with the user
 session (lingering is already enabled for `gethi` by NanoClaw's setup). It
 binds to `127.0.0.1:8099` as today; WSL forwards loopback ports, so the
@@ -160,9 +162,10 @@ There is no concurrent-writer case to design for.
 
 ### 5. Cutover from the Windows task
 
-1. Clone the repo in Ubuntu, copy `config.yaml`, `.env` and `data/`, build the
-   venv with the wrapper, start the dashboard service, and confirm the
-   dashboard shows the existing history.
+1. Clone the repo in Ubuntu, copy `config.yaml`, `.env` and `data/`, create
+   the host venv (`.venv-host`), start the dashboard service, and confirm the
+   dashboard shows the existing history. The container venv is created by the
+   wrapper on the first task run.
 2. Disable (do not delete) the Windows task "WeatherToBattery Nightly" so the
    two copies cannot both act on the inverter.
 3. Create the agent group, mount, packages, destination and task.
@@ -196,7 +199,7 @@ In this repository:
 - `scripts/nightly-charge.py` — add `--dry-run`.
 - `src/orchestrator.py` and/or `src/growatt/client.py` — whatever minimal hook
   `--dry-run` needs to skip the set-charge call and the `decisions` insert.
-- `.gitignore` — add `.venv/`.
+- `.gitignore` — add `.venv*/`.
 - `README.md` — a short "Running under NanoClaw" section.
 
 Outside this repository (configuration, not code): NanoClaw mount allowlist,
